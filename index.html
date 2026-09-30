@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dossier — job application tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F2F7F7;
+    --card: #FBFEFE;
+    --ink: #2B0D24;
+    --ink-soft: #6B535F;
+    --line: #D7E6E5;
+    --line-soft: #E7F1F0;
+    --teal: #157A7E;
+    --teal-soft: #D8EEEE;
+    --brass: #D63384;
+    --brass-soft: #F8DCEA;
+    --rust: #8E1E63;
+    --rust-soft: #F2DCE9;
+    --moss: #4A7A4C;
+    --moss-soft: #DDEADD;
+    --blue: #3B6C90;
+    --blue-soft: #DBE6EF;
+    --radius: 4px;
+    --font-serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --font-sans: 'Work Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #2B0D24;
+      --card: #3B1A33;
+      --ink: #F1E8EE;
+      --ink-soft: #C9AEC0;
+      --line: #4A2A40;
+      --line-soft: #3D2236;
+      --teal: #2FA0A4;
+      --teal-soft: #0D4D57;
+      --brass: #E85FA0;
+      --brass-soft: #4A1530;
+      --rust: #C94F8F;
+      --rust-soft: #3D1530;
+      --moss: #93C494;
+      --moss-soft: #243424;
+      --blue: #93BCDC;
+      --blue-soft: #202E3A;
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #2B0D24;
+    --card: #3B1A33;
+    --ink: #F1E8EE;
+    --ink-soft: #C9AEC0;
+    --line: #4A2A40;
+    --line-soft: #3D2236;
+    --teal: #2FA0A4;
+    --teal-soft: #0D4D57;
+    --brass: #E85FA0;
+    --brass-soft: #4A1530;
+    --rust: #C94F8F;
+    --rust-soft: #3D1530;
+    --moss: #93C494;
+    --moss-soft: #243424;
+    --blue: #93BCDC;
+    --blue-soft: #202E3A;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  a { color: var(--teal); }
+  button { font-family: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+
+  .app { max-width: 980px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  .topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand-mark { font-size: 34px; line-height: 1; }
+  .brand h1 { font-family: var(--font-serif); font-weight: 600; font-size: 30px; margin: 0; letter-spacing: 0.2px; }
+  .tagline { margin: 2px 0 0; color: var(--ink-soft); font-size: 14px; }
+
+  .mode-banner {
+    margin: 4px 0 22px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+
+  .btn-primary {
+    background: var(--teal);
+    color: #F7F5EE;
+    border: none;
+    padding: 11px 18px;
+    border-radius: var(--radius);
+    font-size: 14.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+  }
+  .btn-primary:hover { background: var(--brass); }
+  .btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-size: 14.5px;
+    font-weight: 500;
+  }
+  .btn-ghost:hover { border-color: var(--ink-soft); }
+
+  .btn-text {
+    background: none;
+    border: none;
+    color: var(--rust);
+    font-size: 13px;
+    padding: 4px 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .layout { display: grid; grid-template-columns: 200px 1fr; gap: 22px; align-items: start; }
+
+  .tabs {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--card);
+  }
+
+  .tab {
+    background: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid var(--line-soft);
+    text-align: left;
+    padding: 13px 14px;
+    font-size: 14px;
+    color: var(--ink-soft);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .tab:last-child { border-bottom: none; }
+  .tab:hover { background: var(--paper); color: var(--ink); }
+  .tab.active { border-left-color: var(--brass); background: var(--paper); color: var(--ink); font-weight: 600; }
+
+  .count {
+    font-size: 12px;
+    color: var(--ink-soft);
+    background: var(--line-soft);
+    border-radius: 10px;
+    padding: 1px 7px;
+    min-width: 20px;
+    text-align: center;
+  }
+  .tab.active .count { background: var(--brass-soft); color: var(--brass); }
+
+  .panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); min-height: 200px; }
+  .tab-panel { padding: 4px 0; }
+
+  .panel-toolbar { display: flex; justify-content: flex-end; padding: 14px 18px 6px; }
+
+  .empty { padding: 40px 24px; text-align: center; color: var(--ink-soft); font-size: 14.5px; max-width: 380px; margin: 0 auto; }
+
+  .card { border-bottom: 1px solid var(--line-soft); padding: 4px 18px; }
+  .card:last-child { border-bottom: none; }
+
+  .card-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 0 10px; }
+
+  .expand-toggle {
+    background: none; border: none; display: flex; align-items: flex-start; gap: 10px;
+    text-align: left; padding: 0; color: inherit; flex: 1; min-width: 0;
+  }
+
+  .chevron {
+    font-size: 15px; color: var(--ink-soft); margin-top: 3px; display: inline-block;
+    transition: transform 0.2s ease; flex-shrink: 0;
+  }
+  .expand-toggle[aria-expanded="true"] .chevron { transform: rotate(90deg); color: var(--brass); }
+
+  .card-heading { min-width: 0; }
+  .card-title { display: block; font-family: var(--font-serif); font-size: 18px; font-weight: 500; color: var(--ink); }
+  .card-meta { display: block; font-size: 13px; color: var(--ink-soft); margin-top: 2px; }
+
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; padding-top: 2px; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 12px; font-weight: 600; white-space: nowrap; }
+  .pill-interview { background: var(--blue-soft); color: var(--blue); }
+  .pill-accepted { background: var(--moss-soft); color: var(--moss); }
+  .pill-rejected { background: var(--rust-soft); color: var(--rust); }
+
+  .card-controls { padding: 0 0 12px 25px; }
+  .status-checks { display: flex; gap: 18px; flex-wrap: wrap; }
+
+  .checkbox { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink-soft); cursor: pointer; }
+  .checkbox input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--teal); cursor: pointer; }
+
+  .card-detail-wrapper { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.25s ease; }
+  .card-detail-wrapper.expanded { grid-template-rows: 1fr; }
+  .card-detail-inner { overflow: hidden; }
+  .card-detail { padding: 4px 0 18px 25px; font-size: 14px; }
+
+  .detail-row { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--line-soft); }
+  .detail-row:last-of-type { border-bottom: none; }
+  .detail-label { color: var(--ink-soft); font-size: 12.5px; min-width: 78px; flex-shrink: 0; padding-top: 1px; }
+  .detail-notes { white-space: pre-wrap; }
+
+  .detail-block { margin-top: 14px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line-soft); }
+  .detail-block h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+  .rejected-block { background: var(--rust-soft); } .rejected-block h4 { color: var(--rust); }
+  .accepted-block { background: var(--moss-soft); } .accepted-block h4 { color: var(--moss); }
+  .interview-block { background: var(--blue-soft); } .interview-block h4 { color: var(--blue); }
+  .detail-block p { margin: 0 0 6px; } .detail-block p:last-child { margin-bottom: 0; }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+
+  .file-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .file-thumb { display: flex; flex-direction: column; gap: 4px; width: 84px; text-decoration: none; color: var(--ink-soft); font-size: 11px; }
+  .file-thumb img { width: 84px; height: 84px; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--line); background: var(--paper); }
+  .file-thumb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-doc { display: inline-block; font-size: 13px; padding: 6px 10px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); text-decoration: none; color: var(--ink); }
+
+  .detail-actions { margin-top: 16px; }
+
+  .doc-row { align-items: center; }
+  .doc-link { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; flex: 1; min-width: 0; }
+  .doc-icon { font-size: 22px; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(20, 22, 17, 0.45); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
+  .modal-overlay[hidden] { display: none; }
+  .modal { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
+  .modal-header h3 { font-family: var(--font-serif); font-weight: 500; font-size: 19px; margin: 0; }
+  .modal-close { background: none; border: none; font-size: 20px; color: var(--ink-soft); line-height: 1; padding: 4px; }
+  .modal-close:hover { color: var(--ink); }
+  .modal-body { padding: 18px 20px 20px; }
+  .modal-intro { margin: 0 0 14px; font-size: 14px; color: var(--ink-soft); }
+  .modal-hint { margin: -6px 0 14px; font-size: 12px; color: var(--ink-soft); }
+
+  .field { display: block; margin-bottom: 14px; }
+  .field span { display: block; font-size: 13px; color: var(--ink-soft); margin-bottom: 5px; }
+  .field input[type="text"], .field input[type="url"], .field input[type="date"], .field input[type="time"], .field input[type="file"], .field textarea {
+    width: 100%; font-family: inherit; font-size: 14.5px; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); color: var(--ink);
+  }
+  .field textarea { resize: vertical; min-height: 70px; }
+  .field-row { display: flex; gap: 12px; }
+  .field-row .field { flex: 1; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+
+  @media (max-width: 720px) {
+    .layout { grid-template-columns: 1fr; }
+    .tabs { flex-direction: row; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tab { border-left: none; border-bottom: 3px solid transparent; border-right: 1px solid var(--line-soft); white-space: nowrap; }
+    .tab.active { border-left: none; border-bottom-color: var(--brass); }
+    .card-controls { padding-left: 0; }
+    .card-detail { padding-left: 0; }
+    .field-row { flex-direction: column; gap: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card-detail-wrapper, .chevron, .btn-primary { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">🗂️</span>
+      <div>
+        <h1>Dossier</h1>
+        <p class="tagline">Every lead, application and outcome, kept in one file.</p>
+      </div>
+    </div>
+    <button class="btn-primary" id="addJobBtn" type="button">+ Add opportunity</button>
+  </header>
+  <p class="mode-banner" id="modeBanner">Setting up your workspace…</p>
+
+  <div class="layout">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="opportunities" type="button">Opportunities <span class="count" id="count-opportunities">0</span></button>
+      <button class="tab" data-tab="applied" type="button">Applied <span class="count" id="count-applied">0</span></button>
+      <button class="tab" data-tab="interview" type="button">Interviews <span class="count" id="count-interview">0</span></button>
+      <button class="tab" data-tab="accepted" type="button">Accepted <span class="count" id="count-accepted">0</span></button>
+      <button class="tab" data-tab="rejected" type="button">Rejected <span class="count" id="count-rejected">0</span></button>
+      <button class="tab" data-tab="documents" type="button">Documents <span class="count" id="count-documents">0</span></button>
+    </nav>
+
+    <main class="panel">
+      <section class="tab-panel" id="panel-opportunities"><p class="empty">Loading…</p></section>
+      <section class="tab-panel" id="panel-applied" hidden></section>
+      <section class="tab-panel" id="panel-interview" hidden></section>
+      <section class="tab-panel" id="panel-accepted" hidden></section>
+      <section class="tab-panel" id="panel-rejected" hidden></section>
+      <section class="tab-panel" id="panel-documents" hidden></section>
+    </main>
+  </div>
+</div>
+
+<div class="modal-overlay" id="overlay" hidden>
+  <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var jobs = [];
+  var documents = [];
+  var filesCache = {};
+  var dbPromise = null;
+  var currentCancel = null;
+
+  var mode = 'local';
+  var sharedDb = null;
+  var sharedAssets = null;
+
+  var overlay = document.getElementById('overlay');
+  var modal = document.getElementById('modal');
+
+  /* ---------- shared-runtime capability access ---------- */
+
+  function claudeUse(name) {
+    try {
+      if (window.claude && typeof window.claude.use === 'function') {
+        return window.claude.use(name);
+      }
+    } catch (err) { /* ignore */ }
+    return Promise.resolve(null);
+  }
+
+  function initStorage() {
+    return Promise.all([claudeUse('db'), claudeUse('assets')]).then(function (results) {
+      sharedDb = results[0];
+      sharedAssets = results[1];
+      mode = sharedDb ? 'shared' : 'local';
+    }).catch(function () {
+      mode = 'local';
+    });
+  }
+
+  /* ---------- local (per-browser) storage layer — used when shared sync isn't available ---------- */
+
+  function openLocalDB() {
+    return new Promise(function (resolve, reject) {
+      try {
+        var req = indexedDB.open('dossierDB', 1);
+        req.onupgradeneeded = function (e) {
+          var d = e.target.result;
+          if (!d.objectStoreNames.contains('jobs')) d.createObjectStore('jobs', { keyPath: 'id' });
+          if (!d.objectStoreNames.contains('files')) {
+            var fs = d.createObjectStore('files', { keyPath: 'id' });
+            fs.createIndex('jobId', 'jobId', { unique: false });
+          }
+        };
+        req.onsuccess = function (e) { resolve(e.target.result); };
+        req.onerror = function (e) { reject(e.target.error); };
+      } catch (err) { reject(err); }
+    });
+  }
+
+  function getLocalDB() {
+    if (!dbPromise) {
+      dbPromise = openLocalDB().catch(function (err) {
+        console.error('IndexedDB unavailable, using in-memory storage for this session', err);
+        return null;
+      });
+    }
+    return dbPromise;
+  }
+
+  function txDone(tx) {
+    return new Promise(function (resolve, reject) {
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function () { reject(tx.error); };
+      tx.onabort = function () { reject(tx.error); };
+    });
+  }
+
+  function upsertMemory(job) {
+    var idx = jobs.findIndex(function (j) { return j.id === job.id; });
+    if (idx >= 0) jobs[idx] = job; else jobs.push(job);
+  }
+
+  function loadJobsLocal() {
+    return getLocalDB().then(function (db) {
+      if (!db) return [];
+      var tx = db.transaction('jobs', 'readonly');
+      var req = tx.objectStore('jobs').getAll();
+      return new Promise(function (resolve, reject) {
+        req.onsuccess = function () { resolve(req.result || []); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }).then(function (result) {
+      jobs = (result || []).map(function (j) { return normalizeJob(j); });
+    }).catch(function (err) { console.error('loadJobsLocal failed', err); });
+  }
+
+  function saveJobLocal(job) {
+    upsertMemory(job);
+    return getLocalDB().then(function (db) {
+      if (!db) return;
+      var tx = db.transaction('jobs', 'readwrite');
+      tx.objectStore('jobs').put(job);
+      return txDone(tx);
+    }).catch(function (err) { console.error('saveJobLocal failed — kept in this session only', err); });
+  }
+
+  function deleteJobLocal(id) {
+    jobs = jobs.filter(function (j) { return j.id !== id; });
+    delete filesCache[id];
+    return getLocalDB().then(function (db) {
+      if (!db) return;
+      var tx = db.transaction(['jobs', 'files'], 'readwrite');
+      tx.objectStore('jobs').delete(id);
+      var idx = tx.objectStore('files').index('jobId');
+      var cursorReq = idx.openCursor(IDBKeyRange.only(id));
+      cursorReq.onsuccess = function (e) {
+        var cursor = e.target.result;
+        if (cursor) { cursor.delete(); cursor.continue(); }
+      };
+      return txDone(tx);
+    }).catch(function (err) { console.error('deleteJobLocal failed', err); });
+  }
+
+  function readFileAsDataURL(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result); };
+      reader.onerror = function () { reject(reader.error); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function addFileLocal(jobId, category, file, extra) {
+    return readFileAsDataURL(file).then(function (dataUrl) {
+      var rec = { id: genId(), jobId: jobId, category: category, name: file.name, type: file.type, dataUrl: dataUrl, size: file.size };
+      if (extra) { for (var k in extra) { if (extra.hasOwnProperty(k)) rec[k] = extra[k]; } }
+      if (!filesCache[jobId]) filesCache[jobId] = [];
+      filesCache[jobId].push(rec);
+      return getLocalDB().then(function (db) {
+        if (!db) return;
+        var tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').put(rec);
+        return txDone(tx);
+      }).catch(function (err) { console.error('addFileLocal failed to persist — kept in this session only', err); }).then(function () { return rec; });
+    });
+  }
+
+  function getFilesLocal(jobId) {
+    if (filesCache[jobId]) return Promise.resolve(filesCache[jobId]);
+    return getLocalDB().then(function (db) {
+      if (!db) { filesCache[jobId] = []; return []; }
+      var tx = db.transaction('files', 'readonly');
+      var idx = tx.objectStore('files').index('jobId');
+      var req = idx.getAll(IDBKeyRange.only(jobId));
+      return new Promise(function (resolve, reject) {
+        req.onsuccess = function () { resolve(req.result || []); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }).then(function (result) {
+      filesCache[jobId] = result || [];
+      return filesCache[jobId];
+    }).catch(function (err) {
+      console.error('getFilesLocal failed', err);
+      filesCache[jobId] = [];
+      return [];
+    });
+  }
+
+  function deleteFilesLocal(jobId, category) {
+    return getFilesLocal(jobId).then(function (files) {
+      var toDelete = files.filter(function (f) { return f.category === category; });
+      filesCache[jobId] = files.filter(function (f) { return f.category !== category; });
+      return getLocalDB().then(function (db) {
+        if (!db) return;
+        var tx = db.transaction('files', 'readwrite');
+        toDelete.forEach(function (f) { tx.objectStore('files').delete(f.id); });
+        return txDone(tx);
+      }).catch(function (err) { console.error('deleteFilesLocal failed', err); });
+    });
+  }
+
+  function deleteSingleFileLocal(fileId) {
+    return getLocalDB().then(function (db) {
+      if (!db) return;
+      var tx = db.transaction('files', 'readwrite');
+      tx.objectStore('files').delete(fileId);
+      return txDone(tx);
+    }).then(function () {
+      Object.keys(filesCache).forEach(function (jobId) {
+        filesCache[jobId] = (filesCache[jobId] || []).filter(function (f) { return f.id !== fileId; });
+      });
+    }).catch(function (err) { console.error(err); });
+  }
+
+  function genId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  }
+
+  /* ---------- shape helpers ---------- */
+
+  function normalizeJob(job) {
+    job = job || {};
+    job.title = job.title || '';
+    job.location = job.location || '';
+    job.link = job.link || '';
+    job.notes = job.notes || '';
+    job.createdAt = job.createdAt || new Date().toISOString();
+    job.applied = !!job.applied;
+    job.appliedDate = job.appliedDate || null;
+    job.rejected = !!job.rejected;
+    job.rejectedReasons = job.rejectedReasons || '';
+    job.accepted = !!job.accepted;
+    job.acceptedFiles = job.acceptedFiles || [];
+    job.interview = !!job.interview;
+    job.interviewDate = job.interviewDate || '';
+    job.interviewTime = job.interviewTime || '';
+    job.interviewFiles = job.interviewFiles || [];
+    return job;
+  }
+
+  function cloneJobData(data, id) {
+    var clone;
+    try { clone = JSON.parse(JSON.stringify(data || {})); } catch (e) { clone = {}; }
+    clone.id = id;
+    return normalizeJob(clone);
+  }
+
+  function cloneDocData(data, id) {
+    var clone;
+    try { clone = JSON.parse(JSON.stringify(data || {})); } catch (e) { clone = {}; }
+    clone.id = id;
+    clone.url = clone.assetId ? ('/_blob/' + clone.assetId) : '';
+    return clone;
+  }
+
+  /* ---------- dispatching storage (shared vs local) ---------- */
+
+  function watchJobsShared() {
+    sharedDb.collection('jobs').onSnapshot(function (snap) {
+      jobs = snap.docs.map(function (d) { return cloneJobData(d.data(), d.id); });
+      renderAll();
+    }, function (err) { console.error('jobs subscription error', err); });
+  }
+
+  function watchDocumentsShared() {
+    sharedDb.collection('documents').onSnapshot(function (snap) {
+      documents = snap.docs.map(function (d) { return cloneDocData(d.data(), d.id); });
+      renderDocumentsPanel();
+    }, function (err) { console.error('documents subscription error', err); });
+  }
+
+  function saveJob(job) {
+    if (mode === 'shared') {
+      return sharedDb.collection('jobs').doc(job.id).set(job).catch(function (err) {
+        console.error('saveJob (shared) failed', err);
+        alert('Could not save that change — check your connection and try again.');
+      });
+    }
+    return saveJobLocal(job);
+  }
+
+  function deleteJob(id) {
+    if (mode === 'shared') {
+      var job = jobs.find(function (j) { return j.id === id; });
+      var assetIds = [];
+      if (job) {
+        (job.acceptedFiles || []).forEach(function (f) { assetIds.push(f.id); });
+        (job.interviewFiles || []).forEach(function (f) { assetIds.push(f.id); });
+      }
+      return sharedDb.collection('jobs').doc(id).delete().then(function () {
+        if (sharedAssets) assetIds.forEach(function (aid) { sharedAssets.delete(aid).catch(function () {}); });
+      });
+    }
+    return deleteJobLocal(id);
+  }
+
+  function getJobFiles(job, category) {
+    if (mode === 'shared') {
+      var arr = category === 'accepted' ? (job.acceptedFiles || []) : (job.interviewFiles || []);
+      return Promise.resolve(arr.map(function (f) { return { name: f.name, type: f.type, url: '/_blob/' + f.id }; }));
+    }
+    return getFilesLocal(job.id).then(function (files) {
+      return files.filter(function (f) { return f.category === category; })
+        .map(function (f) { return { name: f.name, type: f.type, url: f.dataUrl }; });
+    });
+  }
+
+  function uploadFilesForJob(job, category, fileList) {
+    if (!fileList.length) return Promise.resolve();
+    if (mode === 'shared') {
+      if (!sharedAssets) return Promise.reject({ code: 'not_granted', message: 'No upload access in this view.' });
+      return Promise.all(fileList.map(function (file) {
+        return sharedAssets.upload(file).then(function (res) {
+          return { id: res.id, name: file.name, type: res.contentType };
+        });
+      })).then(function (descs) {
+        var field = category === 'accepted' ? 'acceptedFiles' : 'interviewFiles';
+        job[field] = (job[field] || []).concat(descs);
+      });
+    }
+    return Promise.all(fileList.map(function (file) { return addFileLocal(job.id, category, file); })).then(function () {});
+  }
+
+  function clearJobFiles(job, category) {
+    if (mode === 'shared') {
+      var field = category === 'accepted' ? 'acceptedFiles' : 'interviewFiles';
+      var toDelete = job[field] || [];
+      job[field] = [];
+      if (sharedAssets) toDelete.forEach(function (f) { sharedAssets.delete(f.id).catch(function () {}); });
+      return Promise.resolve();
+    }
+    return deleteFilesLocal(job.id, category);
+  }
+
+  /* documents (shared application-wide folder) */
+
+  function addDocumentShared(name, note, file) {
+    return sharedAssets.upload(file).then(function (res) {
+      return sharedDb.collection('documents').add({
+        name: name || file.name,
+        note: note || '',
+        assetId: res.id,
+        contentType: res.contentType,
+        size: res.sizeBytes,
+        uploadedAt: new Date().toISOString()
+      });
+    });
+  }
+
+  function addDocumentLocal(name, note, file) {
+    return addFileLocal('__docs__', 'doc', file, {
+      name: name || file.name,
+      note: note || '',
+      uploadedAt: new Date().toISOString()
+    });
+  }
+
+  function loadDocumentsLocal() {
+    return getFilesLocal('__docs__').then(function (files) {
+      documents = files.filter(function (f) { return f.category === 'doc'; }).map(function (f) {
+        return { id: f.id, name: f.name, note: f.note || '', contentType: f.type, size: f.size, uploadedAt: f.uploadedAt || f.name, url: f.dataUrl };
+      });
+    });
+  }
+
+  function deleteDocument(id) {
+    if (mode === 'shared') {
+      var docItem = documents.find(function (d) { return d.id === id; });
+      return sharedDb.collection('documents').doc(id).delete().then(function () {
+        if (docItem && sharedAssets) sharedAssets.delete(docItem.assetId).catch(function () {});
+      });
+    }
+    return deleteSingleFileLocal(id).then(loadDocumentsLocal);
+  }
+
+  /* ---------- generic helpers ---------- */
+
+  function escapeHTML(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function todayISO() {
+    var d = new Date();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+
+  function byCreatedDesc(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); }
+  function byAppliedDesc(a, b) { return new Date(b.appliedDate || b.createdAt) - new Date(a.appliedDate || a.createdAt); }
+
+  /* ---------- modal ---------- */
+
+  function openModal(config) {
+    currentCancel = config.onCancel || null;
+    modal.innerHTML =
+      '<div class="modal-header"><h3>' + escapeHTML(config.title) + '</h3>' +
+      '<button class="modal-close" type="button" aria-label="Close">×</button></div>' +
+      '<div class="modal-body">' + config.bodyHTML + '</div>';
+    overlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+    modal.querySelector('.modal-close').addEventListener('click', cancelModal);
+    var cancelBtn = modal.querySelector('.modal-cancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', cancelModal);
+    if (config.onMount) config.onMount(modal);
+    var firstField = modal.querySelector('input, textarea, select');
+    if (firstField) firstField.focus();
+  }
+
+  function cancelModal() { if (currentCancel) currentCancel(); closeModal(); }
+  function closeModal() { overlay.hidden = true; modal.innerHTML = ''; document.body.style.overflow = ''; currentCancel = null; }
+
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) cancelModal(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !overlay.hidden) cancelModal(); });
+
+  /* ---------- modal content builders ---------- */
+
+  function addJobModalHTML() {
+    return (
+      '<form id="jobForm">' +
+        '<label class="field"><span>Job title</span>' +
+        '<input type="text" id="jobTitle" required maxlength="120" placeholder="e.g. UX Designer, Nova Systems"></label>' +
+        '<label class="field"><span>Location</span>' +
+        '<input type="text" id="jobLocation" maxlength="120" placeholder="e.g. Pretoria (hybrid)"></label>' +
+        '<label class="field"><span>Website link</span>' +
+        '<input type="url" id="jobLink" placeholder="https://"></label>' +
+        '<label class="field"><span>Notes</span>' +
+        '<textarea id="jobNotes" rows="3" placeholder="Anything worth remembering about this one"></textarea></label>' +
+        '<div class="modal-actions">' +
+        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+        '<button type="submit" class="btn-primary">Add opportunity</button></div>' +
+      '</form>'
+    );
+  }
+
+  function appliedModalHTML() {
+    return (
+      '<form id="appliedForm">' +
+        '<p class="modal-intro">When did you send this one in?</p>' +
+        '<label class="field"><span>Date applied</span><input type="date" id="appliedDateInput" required></label>' +
+        '<div class="modal-actions">' +
+        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+        '<button type="submit" class="btn-primary">Move to applied</button></div>' +
+      '</form>'
+    );
+  }
+
+  function rejectModalHTML() {
+    return (
+      '<form id="rejectForm">' +
+        '<p class="modal-intro">Worth a note for next time — what came back?</p>' +
+        '<label class="field"><span>Reasons / recommendations</span>' +
+        '<textarea id="rejectReasons" rows="4" placeholder="Feedback, what to try differently, anything useful"></textarea></label>' +
+        '<div class="modal-actions">' +
+        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+        '<button type="submit" class="btn-primary">Save to rejected</button></div>' +
+      '</form>'
+    );
+  }
+
+  function acceptModalHTML() {
+    var canUpload = mode !== 'shared' || !!sharedAssets;
+    return (
+      '<form id="acceptForm">' +
+        '<p class="modal-intro">Congratulations! Attach any offer letters or documents, if you have them.</p>' +
+        (canUpload
+          ? '<label class="field"><span>Documents or images</span>' +
+            '<input type="file" id="acceptFiles" multiple accept="image/*,application/pdf"></label>' +
+            '<p class="modal-hint">Images and PDFs only — save Word documents as PDF first.</p>'
+          : '<p class="modal-hint">You don\'t have upload access in this view, so this will be marked accepted without files. Ask for "can edit" access to attach documents.</p>') +
+        '<div class="modal-actions">' +
+        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+        '<button type="submit" class="btn-primary">Save to accepted</button></div>' +
+      '</form>'
+    );
+  }
+
+  function interviewModalHTML() {
+    var canUpload = mode !== 'shared' || !!sharedAssets;
+    return (
+      '<form id="interviewForm">' +
+        '<p class="modal-intro">Add the details so you don\'t have to dig for them later.</p>' +
+        '<div class="field-row">' +
+        '<label class="field"><span>Interview date</span><input type="date" id="interviewDateInput"></label>' +
+        '<label class="field"><span>Interview time</span><input type="time" id="interviewTimeInput"></label>' +
+        '</div>' +
+        (canUpload
+          ? '<label class="field"><span>Documents or images</span>' +
+            '<input type="file" id="interviewFiles" multiple accept="image/*,application/pdf"></label>' +
+            '<p class="modal-hint">Images and PDFs only — save Word documents as PDF first.</p>'
+          : '<p class="modal-hint">You don\'t have upload access in this view, so this will be saved without files. Ask for "can edit" access to attach documents.</p>') +
+        '<div class="modal-actions">' +
+        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+        '<button type="submit" class="btn-primary">Save to interviews</button></div>' +
+      '</form>'
+    );
+  }
+
+  function addDocumentModalHTML() {
+    var canUpload = mode !== 'shared' || !!sharedAssets;
+    if (!canUpload) {
+      return '<p class="modal-intro">You can view shared documents here, but adding new ones needs edit access. Ask to be given "can edit" access so you can upload too.</p>' +
+        '<div class="modal-actions"><button type="button" class="btn-ghost modal-cancel">Close</button></div>';
+    }
+    return (
+      '<form id="docForm">' +
+        '<label class="field"><span>Name</span>' +
+        '<input type="text" id="docName" maxlength="120" placeholder="e.g. CV — 2026"></label>' +
+        '<label class="field"><span>Note</span>' +
+        '<input type="text" id="docNote" maxlength="160" placeholder="What is this, or when to use it"></label>' +
+        '<label class="field"><span>File</span>' +
+        '<input type="file" id="docFile" accept="image/*,application/pdf" required></label>' +
+        '<p class="modal-hint">Images and PDFs only — save Word documents as PDF first.</p>' +
+        '<div class="modal-actions">' +
+        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+        '<button type="submit" class="btn-primary">Add to folder</button></div>' +
+      '</form>'
+    );
+  }
+
+  /* ---------- modal openers ---------- */
+
+  function openAddJobModal() {
+    openModal({
+      title: 'Add an opportunity',
+      bodyHTML: addJobModalHTML(),
+      onMount: function (m) {
+        m.querySelector('#jobForm').addEventListener('submit', function (e) {
+          e.preventDefault();
+          var title = m.querySelector('#jobTitle').value.trim();
+          if (!title) return;
+          var job = normalizeJob({
+            id: genId(),
+            title: title,
+            location: m.querySelector('#jobLocation').value.trim(),
+            link: m.querySelector('#jobLink').value.trim(),
+            notes: m.querySelector('#jobNotes').value.trim(),
+            createdAt: new Date().toISOString()
+          });
+          saveJob(job).then(function () { closeModal(); renderAll(); });
+        });
+      }
+    });
+  }
+
+  function openAppliedModal(job, checkbox) {
+    openModal({
+      title: 'Mark as applied',
+      bodyHTML: appliedModalHTML(),
+      onCancel: function () { checkbox.checked = false; },
+      onMount: function (m) {
+        m.querySelector('#appliedDateInput').value = todayISO();
+        m.querySelector('#appliedForm').addEventListener('submit', function (e) {
+          e.preventDefault();
+          job.applied = true;
+          job.appliedDate = m.querySelector('#appliedDateInput').value || todayISO();
+          saveJob(job).then(function () { closeModal(); renderAll(); });
+        });
+      }
+    });
+  }
+
+  function openRejectModal(job, checkbox) {
+    openModal({
+      title: 'Mark as rejected',
+      bodyHTML: rejectModalHTML(),
+      onCancel: function () { checkbox.checked = false; },
+      onMount: function (m) {
+        m.querySelector('#rejectForm').addEventListener('submit', function (e) {
+          e.preventDefault();
+          job.rejected = true;
+          job.rejectedReasons = m.querySelector('#rejectReasons').value.trim();
+          saveJob(job).then(function () { closeModal(); renderAll(); });
+        });
+      }
+    });
+  }
+
+  function openAcceptModal(job, checkbox) {
+    openModal({
+      title: 'Mark as accepted',
+      bodyHTML: acceptModalHTML(),
+      onCancel: function () { checkbox.checked = false; },
+      onMount: function (m) {
+        m.querySelector('#acceptForm').addEventListener('submit', function (e) {
+          e.preventDefault();
+          var fileInput = m.querySelector('#acceptFiles');
+          var files = fileInput ? Array.from(fileInput.files || []) : [];
+          var submitBtn = m.querySelector('button[type="submit"]');
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Saving…';
+          uploadFilesForJob(job, 'accepted', files).then(function () {
+            job.accepted = true;
+            return saveJob(job);
+          }).then(function () {
+            closeModal();
+            renderAll();
+          }).catch(function (err) {
+            console.error(err);
+            var msg = 'One of the files could not be saved.';
+            if (err && err.code === 'unsupported_type') msg = 'That file type isn\'t supported — use an image or a PDF (save Word docs as PDF first).';
+            else if (err && err.code === 'too_large') msg = 'That file is too large.';
+            alert(msg);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save to accepted';
+          });
+        });
+      }
+    });
+  }
+
+  function openInterviewModal(job, checkbox) {
+    openModal({
+      title: 'Mark as interview',
+      bodyHTML: interviewModalHTML(),
+      onCancel: function () { checkbox.checked = false; },
+      onMount: function (m) {
+        m.querySelector('#interviewForm').addEventListener('submit', function (e) {
+          e.preventDefault();
+          var fileInput = m.querySelector('#interviewFiles');
+          var files = fileInput ? Array.from(fileInput.files || []) : [];
+          var submitBtn = m.querySelector('button[type="submit"]');
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Saving…';
+          uploadFilesForJob(job, 'interview', files).then(function () {
+            job.interview = true;
+            job.interviewDate = m.querySelector('#interviewDateInput').value || '';
+            job.interviewTime = m.querySelector('#interviewTimeInput').value || '';
+            return saveJob(job);
+          }).then(function () {
+            closeModal();
+            renderAll();
+          }).catch(function (err) {
+            console.error(err);
+            var msg = 'One of the files could not be saved.';
+            if (err && err.code === 'unsupported_type') msg = 'That file type isn\'t supported — use an image or a PDF (save Word docs as PDF first).';
+            else if (err && err.code === 'too_large') msg = 'That file is too large.';
+            alert(msg);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save to interviews';
+          });
+        });
+      }
+    });
+  }
+
+  function openAddDocumentModal() {
+    openModal({
+      title: 'Add a document',
+      bodyHTML: addDocumentModalHTML(),
+      onMount: function (m) {
+        var form = m.querySelector('#docForm');
+        if (!form) return;
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var fileInput = m.querySelector('#docFile');
+          var file = fileInput.files && fileInput.files[0];
+          if (!file) return;
+          var name = m.querySelector('#docName').value.trim();
+          var note = m.querySelector('#docNote').value.trim();
+          var submitBtn = m.querySelector('button[type="submit"]');
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Saving…';
+          var task = mode === 'shared' ? addDocumentShared(name, note, file) : addDocumentLocal(name, note, file);
+          task.then(function () {
+            return mode === 'local' ? loadDocumentsLocal() : Promise.resolve();
+          }).then(function () {
+            closeModal();
+            renderDocumentsPanel();
+          }).catch(function (err) {
+            console.error(err);
+            var msg = 'Could not save that file.';
+            if (err && err.code === 'unsupported_type') msg = 'That file type isn\'t supported — use an image or a PDF (save Word docs as PDF first).';
+            else if (err && err.code === 'too_large') msg = 'That file is too large.';
+            alert(msg);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Add to folder';
+          });
+        });
+      }
+    });
+  }
+
+  /* ---------- flag toggles ---------- */
+
+  function handleAppliedToggle(job, checkbox) { if (checkbox.checked) openAppliedModal(job, checkbox); }
+
+  function handleFlagToggle(job, flag, checkbox) {
+    if (checkbox.checked) {
+      if (flag === 'rejected') openRejectModal(job, checkbox);
+      else if (flag === 'accepted') openAcceptModal(job, checkbox);
+      else if (flag === 'interview') openInterviewModal(job, checkbox);
+      return;
+    }
+    var label = flag.charAt(0).toUpperCase() + flag.slice(1);
+    var ok = confirm('Remove the ' + label + ' status and its details for "' + job.title + '"?');
+    if (!ok) { checkbox.checked = true; return; }
+    job[flag] = false;
+    var cleanup = Promise.resolve();
+    if (flag === 'rejected') job.rejectedReasons = '';
+    if (flag === 'accepted') cleanup = clearJobFiles(job, 'accepted');
+    if (flag === 'interview') { job.interviewDate = ''; job.interviewTime = ''; cleanup = clearJobFiles(job, 'interview'); }
+    cleanup.then(function () { return saveJob(job); }).then(renderAll);
+  }
+
+  /* ---------- rendering: jobs ---------- */
+
+  function getFiltered(tab) {
+    if (tab === 'opportunities') return jobs.filter(function (j) { return !j.applied; }).sort(byCreatedDesc);
+    if (tab === 'applied') return jobs.filter(function (j) { return j.applied; }).sort(byAppliedDesc);
+    if (tab === 'interview') return jobs.filter(function (j) { return j.interview; }).sort(byAppliedDesc);
+    if (tab === 'accepted') return jobs.filter(function (j) { return j.accepted; }).sort(byAppliedDesc);
+    if (tab === 'rejected') return jobs.filter(function (j) { return j.rejected; }).sort(byAppliedDesc);
+    return [];
+  }
+
+  function emptyMessage(tab) {
+    if (tab === 'opportunities') return 'Nothing here yet. Add a role you\'re eyeing to start tracking it.';
+    if (tab === 'applied') return 'No applications yet. Tick "Applied" on an opportunity to move it here.';
+    if (tab === 'interview') return 'No interviews on the books. They\'ll land here once you flag one.';
+    if (tab === 'accepted') return 'Nothing accepted yet. Offers you accept will collect here.';
+    if (tab === 'rejected') return 'No rejections yet. Hopefully it stays that way.';
+    return '';
+  }
+
+  function renderFiles(files) {
+    if (!files.length) return '<p class="muted">No files attached.</p>';
+    return '<div class="file-grid">' + files.map(function (f) {
+      if (f.type && f.type.indexOf('image/') === 0) {
+        return '<a class="file-thumb" href="' + f.url + '" target="_blank" rel="noopener noreferrer" download="' + escapeHTML(f.name) + '">' +
+          '<img src="' + f.url + '" alt="' + escapeHTML(f.name) + '"><span>' + escapeHTML(f.name) + '</span></a>';
+      }
+      return '<a class="file-doc" href="' + f.url + '" target="_blank" rel="noopener noreferrer" download="' + escapeHTML(f.name) + '">📄 ' + escapeHTML(f.name) + '</a>';
+    }).join('') + '</div>';
+  }
+
+  function buildDetailHTML(job) {
+    var parts = [];
+    if (job.location) parts.push('<div class="detail-row"><span class="detail-label">Location</span><span>' + escapeHTML(job.location) + '</span></div>');
+    if (job.link) parts.push('<div class="detail-row"><span class="detail-label">Link</span><a href="' + escapeHTML(job.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHTML(job.link) + '</a></div>');
+    if (job.notes) parts.push('<div class="detail-row"><span class="detail-label">Notes</span><span class="detail-notes">' + escapeHTML(job.notes) + '</span></div>');
+    if (job.appliedDate) parts.push('<div class="detail-row"><span class="detail-label">Applied</span><span>' + formatDate(job.appliedDate) + '</span></div>');
+    if (!job.location && !job.link && !job.notes && !job.appliedDate) {
+      parts.push('<p class="muted">No extra details were added for this one.</p>');
+    }
+
+    if (job.rejected) {
+      parts.push('<div class="detail-block rejected-block"><h4>Rejected</h4>' +
+        (job.rejectedReasons ? '<p>' + escapeHTML(job.rejectedReasons) + '</p>' : '<p class="muted">No reasons noted.</p>') +
+        '</div>');
+    }
+
+    var needsFiles = job.accepted || job.interview;
+    var work = needsFiles
+      ? Promise.all([
+          job.accepted ? getJobFiles(job, 'accepted') : Promise.resolve([]),
+          job.interview ? getJobFiles(job, 'interview') : Promise.resolve([])
+        ])
+      : Promise.resolve([[], []]);
+
+    return work.then(function (results) {
+      var acceptedFiles = results[0], interviewFiles = results[1];
+      if (job.accepted) {
+        parts.push('<div class="detail-block accepted-block"><h4>Accepted</h4>' + renderFiles(acceptedFiles) + '</div>');
+      }
+      if (job.interview) {
+        var when = [job.interviewDate ? formatDate(job.interviewDate) : null, job.interviewTime || null].filter(Boolean).join(' at ');
+        parts.push('<div class="detail-block interview-block"><h4>Interview</h4>' +
+          (when ? '<p>' + escapeHTML(when) + '</p>' : '<p class="muted">No date set.</p>') +
+          renderFiles(interviewFiles) + '</div>');
+      }
+      parts.push('<div class="detail-actions"><button type="button" class="btn-text remove-job">Remove from tracker</button></div>');
+      return parts.join('');
+    });
+  }
+
+  function wireDetailEvents(detail, job) {
+    var removeBtn = detail.querySelector('.remove-job');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', function () {
+        if (confirm('Remove "' + job.title + '" from your tracker? This can\'t be undone.')) {
+          deleteJob(job.id).then(renderAll);
+        }
+      });
+    }
+  }
+
+  function renderCard(job, tab) {
+    var article = document.createElement('article');
+    article.className = 'card';
+    article.dataset.id = job.id;
+
+    var pills = [];
+    if (tab === 'applied') {
+      if (job.interview) pills.push('<span class="pill pill-interview">Interview</span>');
+      if (job.accepted) pills.push('<span class="pill pill-accepted">Accepted</span>');
+      if (job.rejected) pills.push('<span class="pill pill-rejected">Rejected</span>');
+    }
+
+    var metaBits = [];
+    if (job.location) metaBits.push(escapeHTML(job.location));
+    metaBits.push('added ' + formatDate(job.createdAt));
+    if (tab !== 'opportunities' && job.appliedDate) metaBits.push('applied ' + formatDate(job.appliedDate));
+
+    var controlsHTML = '';
+    if (tab === 'opportunities') {
+      controlsHTML = '<label class="checkbox"><input type="checkbox" class="chk-applied"><span>Applied</span></label>';
+    } else if (tab === 'applied') {
+      controlsHTML =
+        '<div class="status-checks">' +
+        '<label class="checkbox"><input type="checkbox" class="chk-interview"' + (job.interview ? ' checked' : '') + '><span>Interview</span></label>' +
+        '<label class="checkbox"><input type="checkbox" class="chk-accepted"' + (job.accepted ? ' checked' : '') + '><span>Accepted</span></label>' +
+        '<label class="checkbox"><input type="checkbox" class="chk-rejected"' + (job.rejected ? ' checked' : '') + '><span>Rejected</span></label>' +
+        '</div>';
+    }
+
+    article.innerHTML =
+      '<div class="card-row">' +
+        '<button class="expand-toggle" type="button" aria-expanded="false">' +
+          '<span class="chevron" aria-hidden="true">›</span>' +
+          '<span class="card-heading">' +
+            '<span class="card-title">' + escapeHTML(job.title) + '</span>' +
+            '<span class="card-meta">' + metaBits.join(' · ') + '</span>' +
+          '</span>' +
+        '</button>' +
+        (pills.length ? '<div class="pills">' + pills.join('') + '</div>' : '') +
+      '</div>' +
+      (controlsHTML ? '<div class="card-controls">' + controlsHTML + '</div>' : '') +
+      '<div class="card-detail-wrapper"><div class="card-detail-inner"><div class="card-detail"></div></div></div>';
+
+    var toggle = article.querySelector('.expand-toggle');
+    var wrapper = article.querySelector('.card-detail-wrapper');
+    var detail = article.querySelector('.card-detail');
+    var loaded = false;
+
+    toggle.addEventListener('click', function () {
+      var expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!expanded));
+      wrapper.classList.toggle('expanded', !expanded);
+      if (!expanded && !loaded) {
+        loaded = true;
+        detail.innerHTML = '<p class="muted">Loading…</p>';
+        buildDetailHTML(job).then(function (html) {
+          detail.innerHTML = html;
+          wireDetailEvents(detail, job);
+        });
+      }
+    });
+
+    if (tab === 'opportunities') {
+      article.querySelector('.chk-applied').addEventListener('change', function (e) { handleAppliedToggle(job, e.target); });
+    } else if (tab === 'applied') {
+      article.querySelector('.chk-interview').addEventListener('change', function (e) { handleFlagToggle(job, 'interview', e.target); });
+      article.querySelector('.chk-accepted').addEventListener('change', function (e) { handleFlagToggle(job, 'accepted', e.target); });
+      article.querySelector('.chk-rejected').addEventListener('change', function (e) { handleFlagToggle(job, 'rejected', e.target); });
+    }
+
+    return article;
+  }
+
+  function renderPanel(tab) {
+    var panel = document.getElementById('panel-' + tab);
+    var list = getFiltered(tab);
+    document.getElementById('count-' + tab).textContent = list.length;
+    panel.innerHTML = '';
+    if (!list.length) {
+      var p = document.createElement('p');
+      p.className = 'empty';
+      p.textContent = emptyMessage(tab);
+      panel.appendChild(p);
+      return;
+    }
+    list.forEach(function (job) { panel.appendChild(renderCard(job, tab)); });
+  }
+
+  function renderAll() {
+    ['opportunities', 'applied', 'interview', 'accepted', 'rejected'].forEach(renderPanel);
+  }
+
+  /* ---------- rendering: documents ---------- */
+
+  function renderDocumentCard(docItem) {
+    var article = document.createElement('article');
+    article.className = 'card doc-card';
+    var isImage = docItem.contentType && docItem.contentType.indexOf('image/') === 0;
+    article.innerHTML =
+      '<div class="card-row doc-row">' +
+        '<a class="doc-link" href="' + docItem.url + '" target="_blank" rel="noopener noreferrer" download="' + escapeHTML(docItem.name) + '">' +
+          '<span class="doc-icon" aria-hidden="true">' + (isImage ? '🖼️' : '📄') + '</span>' +
+          '<span class="card-heading">' +
+            '<span class="card-title">' + escapeHTML(docItem.name) + '</span>' +
+            '<span class="card-meta">' + (docItem.note ? escapeHTML(docItem.note) + ' · ' : '') + 'added ' + formatDate(docItem.uploadedAt) + '</span>' +
+          '</span>' +
+        '</a>' +
+        '<button type="button" class="btn-text remove-doc">Remove</button>' +
+      '</div>';
+    article.querySelector('.remove-doc').addEventListener('click', function () {
+      if (confirm('Remove "' + docItem.name + '" from the shared folder?')) {
+        deleteDocument(docItem.id).then(function () {
+          if (mode === 'local') return loadDocumentsLocal().then(renderDocumentsPanel);
+          renderDocumentsPanel();
+        });
+      }
+    });
+    return article;
+  }
+
+  function renderDocumentsPanel() {
+    var panel = document.getElementById('panel-documents');
+    if (!panel) return;
+    document.getElementById('count-documents').textContent = documents.length;
+    panel.innerHTML = '';
+
+    var toolbar = document.createElement('div');
+    toolbar.className = 'panel-toolbar';
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn-primary';
+    addBtn.textContent = '+ Add document';
+    addBtn.addEventListener('click', openAddDocumentModal);
+    toolbar.appendChild(addBtn);
+    panel.appendChild(toolbar);
+
+    if (!documents.length) {
+      var p = document.createElement('p');
+      p.className = 'empty';
+      p.textContent = 'Nothing here yet. Keep your CV, cover letter and certificates together so everyone helping with your search can find them.';
+      panel.appendChild(p);
+      return;
+    }
+    documents.slice().sort(function (a, b) { return new Date(b.uploadedAt) - new Date(a.uploadedAt); })
+      .forEach(function (docItem) { panel.appendChild(renderDocumentCard(docItem)); });
+  }
+
+  /* ---------- mode banner ---------- */
+
+  function renderModeBanner() {
+    var banner = document.getElementById('modeBanner');
+    if (!banner) return;
+    if (mode === 'shared') {
+      banner.textContent = '🔗 Synced — everyone you\'ve shared this with sees the same jobs and documents, live.';
+    } else {
+      banner.textContent = '💻 Saved to this browser only right now — open this artifact\'s Share option and give your collaborator edit access to turn on live sync.';
+    }
+  }
+
+  /* ---------- tabs ---------- */
+
+  document.querySelectorAll('.tab').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tab = btn.dataset.tab;
+      document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b === btn); });
+      document.querySelectorAll('.tab-panel').forEach(function (p) { p.hidden = p.id !== ('panel-' + tab); });
+    });
+  });
+
+  document.getElementById('addJobBtn').addEventListener('click', openAddJobModal);
+
+  /* ---------- init ---------- */
+
+  initStorage().then(function () {
+    renderModeBanner();
+    if (mode === 'shared') {
+      watchJobsShared();
+      watchDocumentsShared();
+    } else {
+      loadJobsLocal().then(renderAll);
+      loadDocumentsLocal().then(renderDocumentsPanel);
+    }
+  });
+})();
+</script>
+</body>
+</html>
