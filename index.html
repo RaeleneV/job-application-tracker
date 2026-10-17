@@ -690,6 +690,25 @@
   @media (prefers-reduced-motion: reduce) {
     .card-detail-wrapper, .chevron, .btn-primary, .tab, .file-doc, .card { transition: none; }
   }
+
+  /* ---------- Dark/Light Toggle ---------- */
+    .theme-toggle {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 40;
+    padding: 9px 14px;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1.5px solid var(--edge);
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    box-shadow: 3px 3px 0 var(--shadow);
+    cursor: pointer;
+  }
+  .theme-toggle:hover { background: var(--accent); color: var(--on-accent); }
+  
 </style>
 </head>
 <body>
@@ -1503,6 +1522,32 @@ addJobBtn.addEventListener('click', openAddJobModal);
 
 /* First paint of the Documents tab (empty until sign-in loads data). */
 renderDocumentsPanel();
+</script>
+<!--Light/Dark toggle-->
+  <button class="theme-toggle" id="themeBtn" type="button" aria-label="Switch between light and dark mode"></button>
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('themeBtn');
+  var saved = null;
+  try { saved = localStorage.getItem('dossier-theme'); } catch (e) {}
+  if (saved === 'light' || saved === 'dark') root.setAttribute('data-theme', saved);
+
+  function isDark() {
+    var forced = root.getAttribute('data-theme');
+    if (forced) return forced === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function paint() { btn.textContent = isDark() ? '☀ Light' : '☾ Dark'; }
+
+  btn.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('dossier-theme', next); } catch (e) {}
+    paint();
+  });
+  paint();
+})();
 </script>
 </body>
 </html>
