@@ -708,6 +708,20 @@
     cursor: pointer;
   }
   .theme-toggle:hover { background: var(--accent); color: var(--on-accent); }
+
+    @media (max-width: 720px) {
+    .tabs {
+      position: static;
+      flex-wrap: wrap;
+      overflow: visible;
+      margin: 0;
+      padding: 14px 0 6px;
+      background: none;
+      gap: 8px;
+    }
+    .tab { padding: 8px 12px; font-size: 13.5px; gap: 8px; }
+    .tab.active { box-shadow: 2px 2px 0 var(--accent); }
+  }
   
 </style>
 </head>
