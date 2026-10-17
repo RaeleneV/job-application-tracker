@@ -276,6 +276,12 @@
   .field-row .field { flex: 1; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 
+  .auth-gate { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 44px 24px; text-align: center; max-width: 520px; margin: 24px auto 0; }
+  .auth-gate[hidden], .layout[hidden] { display: none; }
+  .auth-gate h2 { font-family: var(--font-serif); font-weight: 500; font-size: 22px; margin: 0 0 8px; }
+  .auth-gate p { color: var(--ink-soft); font-size: 14.5px; margin: 0 0 20px; }
+  .link-btn { background: none; border: none; padding: 0; color: var(--teal); font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
   @media (max-width: 720px) {
     .layout { grid-template-columns: 1fr; }
     .tabs { flex-direction: row; overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -302,11 +308,17 @@
         <p class="tagline">Every lead, application and outcome, kept in one file.</p>
       </div>
     </div>
-    <button class="btn-primary" id="addJobBtn" type="button">+ Add opportunity</button>
+    <button class="btn-primary" id="addJobBtn" type="button" hidden>+ Add opportunity</button>
   </header>
-  <p class="mode-banner" id="modeBanner">Setting up your workspace…</p>
+  <p class="mode-banner" id="modeBanner">Checking sign-in…</p>
 
-  <div class="layout">
+  <section class="auth-gate" id="authGate" hidden>
+    <h2>Sign in to open your tracker</h2>
+    <p>Dossier is private. Sign in with an approved Google account to see the shared list.</p>
+    <button class="btn-primary" id="signInBtn" type="button">Sign in with Google</button>
+  </section>
+
+  <div class="layout" id="appLayout" hidden>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="opportunities" type="button">Opportunities <span class="count" id="count-opportunities">0</span></button>
       <button class="tab" data-tab="applied" type="button">Applied <span class="count" id="count-applied">0</span></button>
@@ -331,966 +343,771 @@
   <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
 </div>
 
-<script>
-(function () {
-  'use strict';
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut
+} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+import {
+  getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot
+} from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 
-  var jobs = [];
-  var documents = [];
-  var filesCache = {};
-  var dbPromise = null;
-  var currentCancel = null;
+/* ---------- Firebase setup ---------- */
+/* These values are safe to be public. Access is controlled by the Firestore security rules. */
 
-  var mode = 'local';
-  var sharedDb = null;
-  var sharedAssets = null;
+const firebaseConfig = {
+  apiKey: "AIzaSyAKt1QXqRjwfggaFjMZXJHXKKevtYOzGPE",
+  authDomain: "dossier-tracker-9b4a1.firebaseapp.com",
+  projectId: "dossier-tracker-9b4a1",
+  storageBucket: "dossier-tracker-9b4a1.firebasestorage.app",
+  messagingSenderId: "833462766182",
+  appId: "1:833462766182:web:da5654226701531a627ba7"
+};
 
-  var overlay = document.getElementById('overlay');
-  var modal = document.getElementById('modal');
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-  /* ---------- shared-runtime capability access ---------- */
+/* ---------- state ---------- */
 
-  function claudeUse(name) {
-    try {
-      if (window.claude && typeof window.claude.use === 'function') {
-        return window.claude.use(name);
-      }
-    } catch (err) { /* ignore */ }
-    return Promise.resolve(null);
-  }
+var jobs = [];
+var documents = [];
+var currentUser = null;
+var unsubJobs = null;
+var unsubDocs = null;
+var currentCancel = null;
+var expandedCards = {};
 
-  function initStorage() {
-    return Promise.all([claudeUse('db'), claudeUse('assets')]).then(function (results) {
-      sharedDb = results[0];
-      sharedAssets = results[1];
-      mode = sharedDb ? 'shared' : 'local';
-    }).catch(function () {
-      mode = 'local';
-    });
-  }
+var overlay = document.getElementById('overlay');
+var modal = document.getElementById('modal');
+var banner = document.getElementById('modeBanner');
+var authGate = document.getElementById('authGate');
+var appLayout = document.getElementById('appLayout');
+var addJobBtn = document.getElementById('addJobBtn');
 
-  /* ---------- local (per-browser) storage layer — used when shared sync isn't available ---------- */
+/* ---------- generic helpers ---------- */
 
-  function openLocalDB() {
-    return new Promise(function (resolve, reject) {
-      try {
-        var req = indexedDB.open('dossierDB', 1);
-        req.onupgradeneeded = function (e) {
-          var d = e.target.result;
-          if (!d.objectStoreNames.contains('jobs')) d.createObjectStore('jobs', { keyPath: 'id' });
-          if (!d.objectStoreNames.contains('files')) {
-            var fs = d.createObjectStore('files', { keyPath: 'id' });
-            fs.createIndex('jobId', 'jobId', { unique: false });
-          }
-        };
-        req.onsuccess = function (e) { resolve(e.target.result); };
-        req.onerror = function (e) { reject(e.target.error); };
-      } catch (err) { reject(err); }
-    });
-  }
+function genId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+}
 
-  function getLocalDB() {
-    if (!dbPromise) {
-      dbPromise = openLocalDB().catch(function (err) {
-        console.error('IndexedDB unavailable, using in-memory storage for this session', err);
-        return null;
-      });
+function escapeHTML(str) {
+  return String(str == null ? '' : str).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function todayISO() {
+  var d = new Date();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return d.getFullYear() + '-' + m + '-' + day;
+}
+
+function byCreatedDesc(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); }
+function byAppliedDesc(a, b) { return new Date(b.appliedDate || b.createdAt) - new Date(a.appliedDate || a.createdAt); }
+
+/* Only ever turn http(s) links into clickable hrefs. */
+function safeUrl(u) {
+  try {
+    var x = new URL(String(u || '').trim());
+    return (x.protocol === 'http:' || x.protocol === 'https:') ? x.href : '';
+  } catch (e) { return ''; }
+}
+
+function linkLabel(url) {
+  try {
+    var host = new URL(url).hostname.replace(/^www\./, '');
+    if (host === 'drive.google.com' || host === 'docs.google.com') return 'Google Drive file';
+    return host;
+  } catch (e) { return 'Link'; }
+}
+
+/* Turns a textarea (one link per line) into [{name, url}] plus any lines that weren't valid links. */
+function parseLinks(text) {
+  var lines = String(text || '').split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+  var good = [], invalid = [];
+  lines.forEach(function (line) {
+    var u = safeUrl(line);
+    if (u) good.push(u); else invalid.push(line);
+  });
+  var links = good.map(function (u, i) {
+    return { name: linkLabel(u) + (good.length > 1 ? ' ' + (i + 1) : ''), url: u };
+  });
+  return { links: links, invalid: invalid };
+}
+
+/* ---------- shape helpers ---------- */
+
+function normalizeJob(job) {
+  job = job || {};
+  job.title = job.title || '';
+  job.location = job.location || '';
+  job.link = job.link || '';
+  job.notes = job.notes || '';
+  job.createdAt = job.createdAt || new Date().toISOString();
+  job.applied = !!job.applied;
+  job.appliedDate = job.appliedDate || null;
+  job.rejected = !!job.rejected;
+  job.rejectedReasons = job.rejectedReasons || '';
+  job.accepted = !!job.accepted;
+  job.acceptedLinks = job.acceptedLinks || [];
+  job.interview = !!job.interview;
+  job.interviewDate = job.interviewDate || '';
+  job.interviewTime = job.interviewTime || '';
+  job.interviewLinks = job.interviewLinks || [];
+  return job;
+}
+
+function cloneJobData(data, id) {
+  var clone;
+  try { clone = JSON.parse(JSON.stringify(data || {})); } catch (e) { clone = {}; }
+  clone.id = id;
+  return normalizeJob(clone);
+}
+
+function cloneDocData(data, id) {
+  var clone;
+  try { clone = JSON.parse(JSON.stringify(data || {})); } catch (e) { clone = {}; }
+  clone.id = id;
+  return clone;
+}
+
+/* ---------- Firestore reads / writes ---------- */
+
+function saveJob(job) {
+  return setDoc(doc(db, 'jobs', job.id), job).catch(function (err) {
+    console.error('saveJob failed', err);
+    alert('Could not save that change. Check your connection and try again.');
+  });
+}
+
+function deleteJob(id) {
+  return deleteDoc(doc(db, 'jobs', id)).catch(function (err) {
+    console.error('deleteJob failed', err);
+    alert('Could not remove that. Check your connection and try again.');
+  });
+}
+
+function addDocument(name, note, url) {
+  var id = genId();
+  return setDoc(doc(db, 'documents', id), {
+    name: name,
+    note: note,
+    url: url,
+    uploadedAt: new Date().toISOString()
+  });
+}
+
+function deleteDocument(id) {
+  return deleteDoc(doc(db, 'documents', id)).catch(function (err) {
+    console.error('deleteDocument failed', err);
+    alert('Could not remove that. Check your connection and try again.');
+  });
+}
+
+function startWatching() {
+  unsubJobs = onSnapshot(collection(db, 'jobs'), function (snap) {
+    jobs = snap.docs.map(function (d) { return cloneJobData(d.data(), d.id); });
+    renderAll();
+  }, handleWatchError);
+
+  unsubDocs = onSnapshot(collection(db, 'documents'), function (snap) {
+    documents = snap.docs.map(function (d) { return cloneDocData(d.data(), d.id); });
+    renderDocumentsPanel();
+  }, handleWatchError);
+}
+
+function stopWatching() {
+  if (unsubJobs) { unsubJobs(); unsubJobs = null; }
+  if (unsubDocs) { unsubDocs(); unsubDocs = null; }
+}
+
+function handleWatchError(err) {
+  console.error('Firestore listener error', err);
+  if (err && err.code === 'permission-denied') showNoAccess();
+  else setBanner('Could not reach the database right now. Check your connection and refresh.');
+}
+
+/* ---------- signed-in / signed-out states ---------- */
+
+function setBanner(html) { banner.innerHTML = html; }
+
+function signOutLink() {
+  return ' · <button type="button" class="link-btn" data-action="signout">Sign out</button>';
+}
+
+function showSignedOut() {
+  currentUser = null;
+  jobs = [];
+  documents = [];
+  if (!overlay.hidden) closeModal();
+  appLayout.hidden = true;
+  addJobBtn.hidden = true;
+  authGate.hidden = false;
+  setBanner('Sign in to open your tracker.');
+}
+
+function showSignedIn(user) {
+  currentUser = user;
+  authGate.hidden = true;
+  appLayout.hidden = false;
+  addJobBtn.hidden = false;
+  setBanner('🔗 Signed in as ' + escapeHTML(user.email || 'your account') + '. Everything syncs live between approved accounts.' + signOutLink());
+}
+
+function showNoAccess() {
+  appLayout.hidden = true;
+  addJobBtn.hidden = true;
+  authGate.hidden = true;
+  if (!overlay.hidden) closeModal();
+  setBanner('⚠️ ' + escapeHTML((currentUser && currentUser.email) || 'This account') +
+    ' doesn\'t have access to Dossier. Sign out and use an approved Google account.' + signOutLink());
+}
+
+banner.addEventListener('click', function (e) {
+  if (e.target.closest('[data-action="signout"]')) signOut(auth);
+});
+
+document.getElementById('signInBtn').addEventListener('click', function () {
+  signInWithPopup(auth, new GoogleAuthProvider()).catch(function (err) {
+    if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') return;
+    console.error(err);
+    if (err.code === 'auth/unauthorized-domain') {
+      alert('Sign-in is blocked on this website address. Add it under Firebase Authentication → Settings → Authorized domains.');
+    } else if (err.code === 'auth/popup-blocked') {
+      alert('Your browser blocked the sign-in popup. Allow popups for this site and try again.');
+    } else {
+      alert('Sign-in failed (' + (err.code || err.message) + ').');
     }
-    return dbPromise;
-  }
+  });
+});
 
-  function txDone(tx) {
-    return new Promise(function (resolve, reject) {
-      tx.oncomplete = function () { resolve(); };
-      tx.onerror = function () { reject(tx.error); };
-      tx.onabort = function () { reject(tx.error); };
-    });
-  }
+onAuthStateChanged(auth, function (user) {
+  stopWatching();
+  if (!user) { showSignedOut(); return; }
+  showSignedIn(user);
+  startWatching();
+});
 
-  function upsertMemory(job) {
-    var idx = jobs.findIndex(function (j) { return j.id === job.id; });
-    if (idx >= 0) jobs[idx] = job; else jobs.push(job);
-  }
+/* ---------- modal ---------- */
 
-  function loadJobsLocal() {
-    return getLocalDB().then(function (db) {
-      if (!db) return [];
-      var tx = db.transaction('jobs', 'readonly');
-      var req = tx.objectStore('jobs').getAll();
-      return new Promise(function (resolve, reject) {
-        req.onsuccess = function () { resolve(req.result || []); };
-        req.onerror = function () { reject(req.error); };
-      });
-    }).then(function (result) {
-      jobs = (result || []).map(function (j) { return normalizeJob(j); });
-    }).catch(function (err) { console.error('loadJobsLocal failed', err); });
-  }
+function openModal(config) {
+  currentCancel = config.onCancel || null;
+  modal.innerHTML =
+    '<div class="modal-header"><h3>' + escapeHTML(config.title) + '</h3>' +
+    '<button class="modal-close" type="button" aria-label="Close">×</button></div>' +
+    '<div class="modal-body">' + config.bodyHTML + '</div>';
+  overlay.hidden = false;
+  document.body.style.overflow = 'hidden';
+  modal.querySelector('.modal-close').addEventListener('click', cancelModal);
+  var cancelBtn = modal.querySelector('.modal-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', cancelModal);
+  if (config.onMount) config.onMount(modal);
+  var firstField = modal.querySelector('input, textarea, select');
+  if (firstField) firstField.focus();
+}
 
-  function saveJobLocal(job) {
-    upsertMemory(job);
-    return getLocalDB().then(function (db) {
-      if (!db) return;
-      var tx = db.transaction('jobs', 'readwrite');
-      tx.objectStore('jobs').put(job);
-      return txDone(tx);
-    }).catch(function (err) { console.error('saveJobLocal failed — kept in this session only', err); });
-  }
+function cancelModal() { if (currentCancel) currentCancel(); closeModal(); }
+function closeModal() { overlay.hidden = true; modal.innerHTML = ''; document.body.style.overflow = ''; currentCancel = null; }
 
-  function deleteJobLocal(id) {
-    jobs = jobs.filter(function (j) { return j.id !== id; });
-    delete filesCache[id];
-    return getLocalDB().then(function (db) {
-      if (!db) return;
-      var tx = db.transaction(['jobs', 'files'], 'readwrite');
-      tx.objectStore('jobs').delete(id);
-      var idx = tx.objectStore('files').index('jobId');
-      var cursorReq = idx.openCursor(IDBKeyRange.only(id));
-      cursorReq.onsuccess = function (e) {
-        var cursor = e.target.result;
-        if (cursor) { cursor.delete(); cursor.continue(); }
-      };
-      return txDone(tx);
-    }).catch(function (err) { console.error('deleteJobLocal failed', err); });
-  }
+overlay.addEventListener('click', function (e) { if (e.target === overlay) cancelModal(); });
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !overlay.hidden) cancelModal(); });
 
-  function readFileAsDataURL(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () { resolve(reader.result); };
-      reader.onerror = function () { reject(reader.error); };
-      reader.readAsDataURL(file);
-    });
-  }
+/* ---------- modal content builders ---------- */
 
-  function addFileLocal(jobId, category, file, extra) {
-    return readFileAsDataURL(file).then(function (dataUrl) {
-      var rec = { id: genId(), jobId: jobId, category: category, name: file.name, type: file.type, dataUrl: dataUrl, size: file.size };
-      if (extra) { for (var k in extra) { if (extra.hasOwnProperty(k)) rec[k] = extra[k]; } }
-      if (!filesCache[jobId]) filesCache[jobId] = [];
-      filesCache[jobId].push(rec);
-      return getLocalDB().then(function (db) {
-        if (!db) return;
-        var tx = db.transaction('files', 'readwrite');
-        tx.objectStore('files').put(rec);
-        return txDone(tx);
-      }).catch(function (err) { console.error('addFileLocal failed to persist — kept in this session only', err); }).then(function () { return rec; });
-    });
-  }
+var LINK_TIP = 'Tip: in Google Drive, right-click the file, choose Share, make sure your collaborator has access, then Copy link.';
 
-  function getFilesLocal(jobId) {
-    if (filesCache[jobId]) return Promise.resolve(filesCache[jobId]);
-    return getLocalDB().then(function (db) {
-      if (!db) { filesCache[jobId] = []; return []; }
-      var tx = db.transaction('files', 'readonly');
-      var idx = tx.objectStore('files').index('jobId');
-      var req = idx.getAll(IDBKeyRange.only(jobId));
-      return new Promise(function (resolve, reject) {
-        req.onsuccess = function () { resolve(req.result || []); };
-        req.onerror = function () { reject(req.error); };
-      });
-    }).then(function (result) {
-      filesCache[jobId] = result || [];
-      return filesCache[jobId];
-    }).catch(function (err) {
-      console.error('getFilesLocal failed', err);
-      filesCache[jobId] = [];
-      return [];
-    });
-  }
+function addJobModalHTML() {
+  return (
+    '<form id="jobForm">' +
+      '<label class="field"><span>Job title</span>' +
+      '<input type="text" id="jobTitle" required maxlength="120" placeholder="e.g. UX Designer, Nova Systems"></label>' +
+      '<label class="field"><span>Location</span>' +
+      '<input type="text" id="jobLocation" maxlength="120" placeholder="e.g. Pretoria (hybrid)"></label>' +
+      '<label class="field"><span>Website link</span>' +
+      '<input type="url" id="jobLink" placeholder="https://"></label>' +
+      '<label class="field"><span>Notes</span>' +
+      '<textarea id="jobNotes" rows="3" placeholder="Anything worth remembering about this one"></textarea></label>' +
+      '<div class="modal-actions">' +
+      '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+      '<button type="submit" class="btn-primary">Add opportunity</button></div>' +
+    '</form>'
+  );
+}
 
-  function deleteFilesLocal(jobId, category) {
-    return getFilesLocal(jobId).then(function (files) {
-      var toDelete = files.filter(function (f) { return f.category === category; });
-      filesCache[jobId] = files.filter(function (f) { return f.category !== category; });
-      return getLocalDB().then(function (db) {
-        if (!db) return;
-        var tx = db.transaction('files', 'readwrite');
-        toDelete.forEach(function (f) { tx.objectStore('files').delete(f.id); });
-        return txDone(tx);
-      }).catch(function (err) { console.error('deleteFilesLocal failed', err); });
-    });
-  }
+function appliedModalHTML() {
+  return (
+    '<form id="appliedForm">' +
+      '<p class="modal-intro">When did you send this one in?</p>' +
+      '<label class="field"><span>Date applied</span><input type="date" id="appliedDateInput" required></label>' +
+      '<div class="modal-actions">' +
+      '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+      '<button type="submit" class="btn-primary">Move to applied</button></div>' +
+    '</form>'
+  );
+}
 
-  function deleteSingleFileLocal(fileId) {
-    return getLocalDB().then(function (db) {
-      if (!db) return;
-      var tx = db.transaction('files', 'readwrite');
-      tx.objectStore('files').delete(fileId);
-      return txDone(tx);
-    }).then(function () {
-      Object.keys(filesCache).forEach(function (jobId) {
-        filesCache[jobId] = (filesCache[jobId] || []).filter(function (f) { return f.id !== fileId; });
-      });
-    }).catch(function (err) { console.error(err); });
-  }
+function rejectModalHTML() {
+  return (
+    '<form id="rejectForm">' +
+      '<p class="modal-intro">Worth a note for next time. What came back?</p>' +
+      '<label class="field"><span>Reasons / recommendations</span>' +
+      '<textarea id="rejectReasons" rows="4" placeholder="Feedback, what to try differently, anything useful"></textarea></label>' +
+      '<div class="modal-actions">' +
+      '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+      '<button type="submit" class="btn-primary">Save to rejected</button></div>' +
+    '</form>'
+  );
+}
 
-  function genId() {
-    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
-    return 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-  }
+function acceptModalHTML() {
+  return (
+    '<form id="acceptForm">' +
+      '<p class="modal-intro">Congratulations! Add links to any offer letters or documents, if you have them.</p>' +
+      '<label class="field"><span>Document links</span>' +
+      '<textarea id="acceptLinks" rows="3" placeholder="Paste one link per line"></textarea></label>' +
+      '<p class="modal-hint">' + LINK_TIP + '</p>' +
+      '<div class="modal-actions">' +
+      '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+      '<button type="submit" class="btn-primary">Save to accepted</button></div>' +
+    '</form>'
+  );
+}
 
-  /* ---------- shape helpers ---------- */
+function interviewModalHTML() {
+  return (
+    '<form id="interviewForm">' +
+      '<p class="modal-intro">Add the details so you don\'t have to dig for them later.</p>' +
+      '<div class="field-row">' +
+      '<label class="field"><span>Interview date</span><input type="date" id="interviewDateInput"></label>' +
+      '<label class="field"><span>Interview time</span><input type="time" id="interviewTimeInput"></label>' +
+      '</div>' +
+      '<label class="field"><span>Document links</span>' +
+      '<textarea id="interviewLinks" rows="3" placeholder="Paste one link per line"></textarea></label>' +
+      '<p class="modal-hint">' + LINK_TIP + '</p>' +
+      '<div class="modal-actions">' +
+      '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+      '<button type="submit" class="btn-primary">Save to interviews</button></div>' +
+    '</form>'
+  );
+}
 
-  function normalizeJob(job) {
-    job = job || {};
-    job.title = job.title || '';
-    job.location = job.location || '';
-    job.link = job.link || '';
-    job.notes = job.notes || '';
-    job.createdAt = job.createdAt || new Date().toISOString();
-    job.applied = !!job.applied;
-    job.appliedDate = job.appliedDate || null;
-    job.rejected = !!job.rejected;
-    job.rejectedReasons = job.rejectedReasons || '';
-    job.accepted = !!job.accepted;
-    job.acceptedFiles = job.acceptedFiles || [];
-    job.interview = !!job.interview;
-    job.interviewDate = job.interviewDate || '';
-    job.interviewTime = job.interviewTime || '';
-    job.interviewFiles = job.interviewFiles || [];
-    return job;
-  }
+function addDocumentModalHTML() {
+  return (
+    '<form id="docForm">' +
+      '<label class="field"><span>Name</span>' +
+      '<input type="text" id="docName" required maxlength="120" placeholder="e.g. CV 2026"></label>' +
+      '<label class="field"><span>Link</span>' +
+      '<input type="url" id="docUrl" required placeholder="https://drive.google.com/..."></label>' +
+      '<label class="field"><span>Note</span>' +
+      '<input type="text" id="docNote" maxlength="160" placeholder="What is this, or when to use it"></label>' +
+      '<p class="modal-hint">' + LINK_TIP + '</p>' +
+      '<div class="modal-actions">' +
+      '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
+      '<button type="submit" class="btn-primary">Add to folder</button></div>' +
+    '</form>'
+  );
+}
 
-  function cloneJobData(data, id) {
-    var clone;
-    try { clone = JSON.parse(JSON.stringify(data || {})); } catch (e) { clone = {}; }
-    clone.id = id;
-    return normalizeJob(clone);
-  }
+/* ---------- modal openers ---------- */
 
-  function cloneDocData(data, id) {
-    var clone;
-    try { clone = JSON.parse(JSON.stringify(data || {})); } catch (e) { clone = {}; }
-    clone.id = id;
-    clone.url = clone.assetId ? ('/_blob/' + clone.assetId) : '';
-    return clone;
-  }
+function checkLinks(parsed) {
+  if (!parsed.invalid.length) return true;
+  alert('These don\'t look like valid links (they need to start with https://):\n\n' + parsed.invalid.join('\n'));
+  return false;
+}
 
-  /* ---------- dispatching storage (shared vs local) ---------- */
-
-  function watchJobsShared() {
-    sharedDb.collection('jobs').onSnapshot(function (snap) {
-      jobs = snap.docs.map(function (d) { return cloneJobData(d.data(), d.id); });
-      renderAll();
-    }, function (err) { console.error('jobs subscription error', err); });
-  }
-
-  function watchDocumentsShared() {
-    sharedDb.collection('documents').onSnapshot(function (snap) {
-      documents = snap.docs.map(function (d) { return cloneDocData(d.data(), d.id); });
-      renderDocumentsPanel();
-    }, function (err) { console.error('documents subscription error', err); });
-  }
-
-  function saveJob(job) {
-    if (mode === 'shared') {
-      return sharedDb.collection('jobs').doc(job.id).set(job).catch(function (err) {
-        console.error('saveJob (shared) failed', err);
-        alert('Could not save that change — check your connection and try again.');
-      });
-    }
-    return saveJobLocal(job);
-  }
-
-  function deleteJob(id) {
-    if (mode === 'shared') {
-      var job = jobs.find(function (j) { return j.id === id; });
-      var assetIds = [];
-      if (job) {
-        (job.acceptedFiles || []).forEach(function (f) { assetIds.push(f.id); });
-        (job.interviewFiles || []).forEach(function (f) { assetIds.push(f.id); });
-      }
-      return sharedDb.collection('jobs').doc(id).delete().then(function () {
-        if (sharedAssets) assetIds.forEach(function (aid) { sharedAssets.delete(aid).catch(function () {}); });
-      });
-    }
-    return deleteJobLocal(id);
-  }
-
-  function getJobFiles(job, category) {
-    if (mode === 'shared') {
-      var arr = category === 'accepted' ? (job.acceptedFiles || []) : (job.interviewFiles || []);
-      return Promise.resolve(arr.map(function (f) { return { name: f.name, type: f.type, url: '/_blob/' + f.id }; }));
-    }
-    return getFilesLocal(job.id).then(function (files) {
-      return files.filter(function (f) { return f.category === category; })
-        .map(function (f) { return { name: f.name, type: f.type, url: f.dataUrl }; });
-    });
-  }
-
-  function uploadFilesForJob(job, category, fileList) {
-    if (!fileList.length) return Promise.resolve();
-    if (mode === 'shared') {
-      if (!sharedAssets) return Promise.reject({ code: 'not_granted', message: 'No upload access in this view.' });
-      return Promise.all(fileList.map(function (file) {
-        return sharedAssets.upload(file).then(function (res) {
-          return { id: res.id, name: file.name, type: res.contentType };
+function openAddJobModal() {
+  openModal({
+    title: 'Add an opportunity',
+    bodyHTML: addJobModalHTML(),
+    onMount: function (m) {
+      m.querySelector('#jobForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var title = m.querySelector('#jobTitle').value.trim();
+        if (!title) return;
+        var job = normalizeJob({
+          id: genId(),
+          title: title,
+          location: m.querySelector('#jobLocation').value.trim(),
+          link: m.querySelector('#jobLink').value.trim(),
+          notes: m.querySelector('#jobNotes').value.trim(),
+          createdAt: new Date().toISOString()
         });
-      })).then(function (descs) {
-        var field = category === 'accepted' ? 'acceptedFiles' : 'interviewFiles';
-        job[field] = (job[field] || []).concat(descs);
+        saveJob(job).then(function () { closeModal(); });
       });
     }
-    return Promise.all(fileList.map(function (file) { return addFileLocal(job.id, category, file); })).then(function () {});
-  }
+  });
+}
 
-  function clearJobFiles(job, category) {
-    if (mode === 'shared') {
-      var field = category === 'accepted' ? 'acceptedFiles' : 'interviewFiles';
-      var toDelete = job[field] || [];
-      job[field] = [];
-      if (sharedAssets) toDelete.forEach(function (f) { sharedAssets.delete(f.id).catch(function () {}); });
-      return Promise.resolve();
-    }
-    return deleteFilesLocal(job.id, category);
-  }
-
-  /* documents (shared application-wide folder) */
-
-  function addDocumentShared(name, note, file) {
-    return sharedAssets.upload(file).then(function (res) {
-      return sharedDb.collection('documents').add({
-        name: name || file.name,
-        note: note || '',
-        assetId: res.id,
-        contentType: res.contentType,
-        size: res.sizeBytes,
-        uploadedAt: new Date().toISOString()
-      });
-    });
-  }
-
-  function addDocumentLocal(name, note, file) {
-    return addFileLocal('__docs__', 'doc', file, {
-      name: name || file.name,
-      note: note || '',
-      uploadedAt: new Date().toISOString()
-    });
-  }
-
-  function loadDocumentsLocal() {
-    return getFilesLocal('__docs__').then(function (files) {
-      documents = files.filter(function (f) { return f.category === 'doc'; }).map(function (f) {
-        return { id: f.id, name: f.name, note: f.note || '', contentType: f.type, size: f.size, uploadedAt: f.uploadedAt || f.name, url: f.dataUrl };
-      });
-    });
-  }
-
-  function deleteDocument(id) {
-    if (mode === 'shared') {
-      var docItem = documents.find(function (d) { return d.id === id; });
-      return sharedDb.collection('documents').doc(id).delete().then(function () {
-        if (docItem && sharedAssets) sharedAssets.delete(docItem.assetId).catch(function () {});
+function openAppliedModal(job, checkbox) {
+  openModal({
+    title: 'Mark as applied',
+    bodyHTML: appliedModalHTML(),
+    onCancel: function () { checkbox.checked = false; },
+    onMount: function (m) {
+      m.querySelector('#appliedDateInput').value = todayISO();
+      m.querySelector('#appliedForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        job.applied = true;
+        job.appliedDate = m.querySelector('#appliedDateInput').value || todayISO();
+        saveJob(job).then(function () { closeModal(); });
       });
     }
-    return deleteSingleFileLocal(id).then(loadDocumentsLocal);
-  }
+  });
+}
 
-  /* ---------- generic helpers ---------- */
-
-  function escapeHTML(str) {
-    return String(str == null ? '' : str).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-
-  function formatDate(iso) {
-    if (!iso) return '';
-    var d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-  }
-
-  function todayISO() {
-    var d = new Date();
-    var m = String(d.getMonth() + 1).padStart(2, '0');
-    var day = String(d.getDate()).padStart(2, '0');
-    return d.getFullYear() + '-' + m + '-' + day;
-  }
-
-  function byCreatedDesc(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); }
-  function byAppliedDesc(a, b) { return new Date(b.appliedDate || b.createdAt) - new Date(a.appliedDate || a.createdAt); }
-
-  /* ---------- modal ---------- */
-
-  function openModal(config) {
-    currentCancel = config.onCancel || null;
-    modal.innerHTML =
-      '<div class="modal-header"><h3>' + escapeHTML(config.title) + '</h3>' +
-      '<button class="modal-close" type="button" aria-label="Close">×</button></div>' +
-      '<div class="modal-body">' + config.bodyHTML + '</div>';
-    overlay.hidden = false;
-    document.body.style.overflow = 'hidden';
-    modal.querySelector('.modal-close').addEventListener('click', cancelModal);
-    var cancelBtn = modal.querySelector('.modal-cancel');
-    if (cancelBtn) cancelBtn.addEventListener('click', cancelModal);
-    if (config.onMount) config.onMount(modal);
-    var firstField = modal.querySelector('input, textarea, select');
-    if (firstField) firstField.focus();
-  }
-
-  function cancelModal() { if (currentCancel) currentCancel(); closeModal(); }
-  function closeModal() { overlay.hidden = true; modal.innerHTML = ''; document.body.style.overflow = ''; currentCancel = null; }
-
-  overlay.addEventListener('click', function (e) { if (e.target === overlay) cancelModal(); });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !overlay.hidden) cancelModal(); });
-
-  /* ---------- modal content builders ---------- */
-
-  function addJobModalHTML() {
-    return (
-      '<form id="jobForm">' +
-        '<label class="field"><span>Job title</span>' +
-        '<input type="text" id="jobTitle" required maxlength="120" placeholder="e.g. UX Designer, Nova Systems"></label>' +
-        '<label class="field"><span>Location</span>' +
-        '<input type="text" id="jobLocation" maxlength="120" placeholder="e.g. Pretoria (hybrid)"></label>' +
-        '<label class="field"><span>Website link</span>' +
-        '<input type="url" id="jobLink" placeholder="https://"></label>' +
-        '<label class="field"><span>Notes</span>' +
-        '<textarea id="jobNotes" rows="3" placeholder="Anything worth remembering about this one"></textarea></label>' +
-        '<div class="modal-actions">' +
-        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
-        '<button type="submit" class="btn-primary">Add opportunity</button></div>' +
-      '</form>'
-    );
-  }
-
-  function appliedModalHTML() {
-    return (
-      '<form id="appliedForm">' +
-        '<p class="modal-intro">When did you send this one in?</p>' +
-        '<label class="field"><span>Date applied</span><input type="date" id="appliedDateInput" required></label>' +
-        '<div class="modal-actions">' +
-        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
-        '<button type="submit" class="btn-primary">Move to applied</button></div>' +
-      '</form>'
-    );
-  }
-
-  function rejectModalHTML() {
-    return (
-      '<form id="rejectForm">' +
-        '<p class="modal-intro">Worth a note for next time — what came back?</p>' +
-        '<label class="field"><span>Reasons / recommendations</span>' +
-        '<textarea id="rejectReasons" rows="4" placeholder="Feedback, what to try differently, anything useful"></textarea></label>' +
-        '<div class="modal-actions">' +
-        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
-        '<button type="submit" class="btn-primary">Save to rejected</button></div>' +
-      '</form>'
-    );
-  }
-
-  function acceptModalHTML() {
-    var canUpload = mode !== 'shared' || !!sharedAssets;
-    return (
-      '<form id="acceptForm">' +
-        '<p class="modal-intro">Congratulations! Attach any offer letters or documents, if you have them.</p>' +
-        (canUpload
-          ? '<label class="field"><span>Documents or images</span>' +
-            '<input type="file" id="acceptFiles" multiple accept="image/*,application/pdf"></label>' +
-            '<p class="modal-hint">Images and PDFs only — save Word documents as PDF first.</p>'
-          : '<p class="modal-hint">You don\'t have upload access in this view, so this will be marked accepted without files. Ask for "can edit" access to attach documents.</p>') +
-        '<div class="modal-actions">' +
-        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
-        '<button type="submit" class="btn-primary">Save to accepted</button></div>' +
-      '</form>'
-    );
-  }
-
-  function interviewModalHTML() {
-    var canUpload = mode !== 'shared' || !!sharedAssets;
-    return (
-      '<form id="interviewForm">' +
-        '<p class="modal-intro">Add the details so you don\'t have to dig for them later.</p>' +
-        '<div class="field-row">' +
-        '<label class="field"><span>Interview date</span><input type="date" id="interviewDateInput"></label>' +
-        '<label class="field"><span>Interview time</span><input type="time" id="interviewTimeInput"></label>' +
-        '</div>' +
-        (canUpload
-          ? '<label class="field"><span>Documents or images</span>' +
-            '<input type="file" id="interviewFiles" multiple accept="image/*,application/pdf"></label>' +
-            '<p class="modal-hint">Images and PDFs only — save Word documents as PDF first.</p>'
-          : '<p class="modal-hint">You don\'t have upload access in this view, so this will be saved without files. Ask for "can edit" access to attach documents.</p>') +
-        '<div class="modal-actions">' +
-        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
-        '<button type="submit" class="btn-primary">Save to interviews</button></div>' +
-      '</form>'
-    );
-  }
-
-  function addDocumentModalHTML() {
-    var canUpload = mode !== 'shared' || !!sharedAssets;
-    if (!canUpload) {
-      return '<p class="modal-intro">You can view shared documents here, but adding new ones needs edit access. Ask to be given "can edit" access so you can upload too.</p>' +
-        '<div class="modal-actions"><button type="button" class="btn-ghost modal-cancel">Close</button></div>';
+function openRejectModal(job, checkbox) {
+  openModal({
+    title: 'Mark as rejected',
+    bodyHTML: rejectModalHTML(),
+    onCancel: function () { checkbox.checked = false; },
+    onMount: function (m) {
+      m.querySelector('#rejectForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        job.rejected = true;
+        job.rejectedReasons = m.querySelector('#rejectReasons').value.trim();
+        saveJob(job).then(function () { closeModal(); });
+      });
     }
-    return (
-      '<form id="docForm">' +
-        '<label class="field"><span>Name</span>' +
-        '<input type="text" id="docName" maxlength="120" placeholder="e.g. CV — 2026"></label>' +
-        '<label class="field"><span>Note</span>' +
-        '<input type="text" id="docNote" maxlength="160" placeholder="What is this, or when to use it"></label>' +
-        '<label class="field"><span>File</span>' +
-        '<input type="file" id="docFile" accept="image/*,application/pdf" required></label>' +
-        '<p class="modal-hint">Images and PDFs only — save Word documents as PDF first.</p>' +
-        '<div class="modal-actions">' +
-        '<button type="button" class="btn-ghost modal-cancel">Cancel</button>' +
-        '<button type="submit" class="btn-primary">Add to folder</button></div>' +
-      '</form>'
-    );
-  }
+  });
+}
 
-  /* ---------- modal openers ---------- */
-
-  function openAddJobModal() {
-    openModal({
-      title: 'Add an opportunity',
-      bodyHTML: addJobModalHTML(),
-      onMount: function (m) {
-        m.querySelector('#jobForm').addEventListener('submit', function (e) {
-          e.preventDefault();
-          var title = m.querySelector('#jobTitle').value.trim();
-          if (!title) return;
-          var job = normalizeJob({
-            id: genId(),
-            title: title,
-            location: m.querySelector('#jobLocation').value.trim(),
-            link: m.querySelector('#jobLink').value.trim(),
-            notes: m.querySelector('#jobNotes').value.trim(),
-            createdAt: new Date().toISOString()
-          });
-          saveJob(job).then(function () { closeModal(); renderAll(); });
-        });
-      }
-    });
-  }
-
-  function openAppliedModal(job, checkbox) {
-    openModal({
-      title: 'Mark as applied',
-      bodyHTML: appliedModalHTML(),
-      onCancel: function () { checkbox.checked = false; },
-      onMount: function (m) {
-        m.querySelector('#appliedDateInput').value = todayISO();
-        m.querySelector('#appliedForm').addEventListener('submit', function (e) {
-          e.preventDefault();
-          job.applied = true;
-          job.appliedDate = m.querySelector('#appliedDateInput').value || todayISO();
-          saveJob(job).then(function () { closeModal(); renderAll(); });
-        });
-      }
-    });
-  }
-
-  function openRejectModal(job, checkbox) {
-    openModal({
-      title: 'Mark as rejected',
-      bodyHTML: rejectModalHTML(),
-      onCancel: function () { checkbox.checked = false; },
-      onMount: function (m) {
-        m.querySelector('#rejectForm').addEventListener('submit', function (e) {
-          e.preventDefault();
-          job.rejected = true;
-          job.rejectedReasons = m.querySelector('#rejectReasons').value.trim();
-          saveJob(job).then(function () { closeModal(); renderAll(); });
-        });
-      }
-    });
-  }
-
-  function openAcceptModal(job, checkbox) {
-    openModal({
-      title: 'Mark as accepted',
-      bodyHTML: acceptModalHTML(),
-      onCancel: function () { checkbox.checked = false; },
-      onMount: function (m) {
-        m.querySelector('#acceptForm').addEventListener('submit', function (e) {
-          e.preventDefault();
-          var fileInput = m.querySelector('#acceptFiles');
-          var files = fileInput ? Array.from(fileInput.files || []) : [];
-          var submitBtn = m.querySelector('button[type="submit"]');
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'Saving…';
-          uploadFilesForJob(job, 'accepted', files).then(function () {
-            job.accepted = true;
-            return saveJob(job);
-          }).then(function () {
-            closeModal();
-            renderAll();
-          }).catch(function (err) {
-            console.error(err);
-            var msg = 'One of the files could not be saved.';
-            if (err && err.code === 'unsupported_type') msg = 'That file type isn\'t supported — use an image or a PDF (save Word docs as PDF first).';
-            else if (err && err.code === 'too_large') msg = 'That file is too large.';
-            alert(msg);
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Save to accepted';
-          });
-        });
-      }
-    });
-  }
-
-  function openInterviewModal(job, checkbox) {
-    openModal({
-      title: 'Mark as interview',
-      bodyHTML: interviewModalHTML(),
-      onCancel: function () { checkbox.checked = false; },
-      onMount: function (m) {
-        m.querySelector('#interviewForm').addEventListener('submit', function (e) {
-          e.preventDefault();
-          var fileInput = m.querySelector('#interviewFiles');
-          var files = fileInput ? Array.from(fileInput.files || []) : [];
-          var submitBtn = m.querySelector('button[type="submit"]');
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'Saving…';
-          uploadFilesForJob(job, 'interview', files).then(function () {
-            job.interview = true;
-            job.interviewDate = m.querySelector('#interviewDateInput').value || '';
-            job.interviewTime = m.querySelector('#interviewTimeInput').value || '';
-            return saveJob(job);
-          }).then(function () {
-            closeModal();
-            renderAll();
-          }).catch(function (err) {
-            console.error(err);
-            var msg = 'One of the files could not be saved.';
-            if (err && err.code === 'unsupported_type') msg = 'That file type isn\'t supported — use an image or a PDF (save Word docs as PDF first).';
-            else if (err && err.code === 'too_large') msg = 'That file is too large.';
-            alert(msg);
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Save to interviews';
-          });
-        });
-      }
-    });
-  }
-
-  function openAddDocumentModal() {
-    openModal({
-      title: 'Add a document',
-      bodyHTML: addDocumentModalHTML(),
-      onMount: function (m) {
-        var form = m.querySelector('#docForm');
-        if (!form) return;
-        form.addEventListener('submit', function (e) {
-          e.preventDefault();
-          var fileInput = m.querySelector('#docFile');
-          var file = fileInput.files && fileInput.files[0];
-          if (!file) return;
-          var name = m.querySelector('#docName').value.trim();
-          var note = m.querySelector('#docNote').value.trim();
-          var submitBtn = m.querySelector('button[type="submit"]');
-          submitBtn.disabled = true;
-          submitBtn.textContent = 'Saving…';
-          var task = mode === 'shared' ? addDocumentShared(name, note, file) : addDocumentLocal(name, note, file);
-          task.then(function () {
-            return mode === 'local' ? loadDocumentsLocal() : Promise.resolve();
-          }).then(function () {
-            closeModal();
-            renderDocumentsPanel();
-          }).catch(function (err) {
-            console.error(err);
-            var msg = 'Could not save that file.';
-            if (err && err.code === 'unsupported_type') msg = 'That file type isn\'t supported — use an image or a PDF (save Word docs as PDF first).';
-            else if (err && err.code === 'too_large') msg = 'That file is too large.';
-            alert(msg);
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Add to folder';
-          });
-        });
-      }
-    });
-  }
-
-  /* ---------- flag toggles ---------- */
-
-  function handleAppliedToggle(job, checkbox) { if (checkbox.checked) openAppliedModal(job, checkbox); }
-
-  function handleFlagToggle(job, flag, checkbox) {
-    if (checkbox.checked) {
-      if (flag === 'rejected') openRejectModal(job, checkbox);
-      else if (flag === 'accepted') openAcceptModal(job, checkbox);
-      else if (flag === 'interview') openInterviewModal(job, checkbox);
-      return;
+function openAcceptModal(job, checkbox) {
+  openModal({
+    title: 'Mark as accepted',
+    bodyHTML: acceptModalHTML(),
+    onCancel: function () { checkbox.checked = false; },
+    onMount: function (m) {
+      m.querySelector('#acceptForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var parsed = parseLinks(m.querySelector('#acceptLinks').value);
+        if (!checkLinks(parsed)) return;
+        var submitBtn = m.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving…';
+        job.accepted = true;
+        job.acceptedLinks = (job.acceptedLinks || []).concat(parsed.links);
+        saveJob(job).then(function () { closeModal(); });
+      });
     }
-    var label = flag.charAt(0).toUpperCase() + flag.slice(1);
-    var ok = confirm('Remove the ' + label + ' status and its details for "' + job.title + '"?');
-    if (!ok) { checkbox.checked = true; return; }
-    job[flag] = false;
-    var cleanup = Promise.resolve();
-    if (flag === 'rejected') job.rejectedReasons = '';
-    if (flag === 'accepted') cleanup = clearJobFiles(job, 'accepted');
-    if (flag === 'interview') { job.interviewDate = ''; job.interviewTime = ''; cleanup = clearJobFiles(job, 'interview'); }
-    cleanup.then(function () { return saveJob(job); }).then(renderAll);
-  }
+  });
+}
 
-  /* ---------- rendering: jobs ---------- */
-
-  function getFiltered(tab) {
-    if (tab === 'opportunities') return jobs.filter(function (j) { return !j.applied; }).sort(byCreatedDesc);
-    if (tab === 'applied') return jobs.filter(function (j) { return j.applied; }).sort(byAppliedDesc);
-    if (tab === 'interview') return jobs.filter(function (j) { return j.interview; }).sort(byAppliedDesc);
-    if (tab === 'accepted') return jobs.filter(function (j) { return j.accepted; }).sort(byAppliedDesc);
-    if (tab === 'rejected') return jobs.filter(function (j) { return j.rejected; }).sort(byAppliedDesc);
-    return [];
-  }
-
-  function emptyMessage(tab) {
-    if (tab === 'opportunities') return 'Nothing here yet. Add a role you\'re eyeing to start tracking it.';
-    if (tab === 'applied') return 'No applications yet. Tick "Applied" on an opportunity to move it here.';
-    if (tab === 'interview') return 'No interviews on the books. They\'ll land here once you flag one.';
-    if (tab === 'accepted') return 'Nothing accepted yet. Offers you accept will collect here.';
-    if (tab === 'rejected') return 'No rejections yet. Hopefully it stays that way.';
-    return '';
-  }
-
-  function renderFiles(files) {
-    if (!files.length) return '<p class="muted">No files attached.</p>';
-    return '<div class="file-grid">' + files.map(function (f) {
-      if (f.type && f.type.indexOf('image/') === 0) {
-        return '<a class="file-thumb" href="' + f.url + '" target="_blank" rel="noopener noreferrer" download="' + escapeHTML(f.name) + '">' +
-          '<img src="' + f.url + '" alt="' + escapeHTML(f.name) + '"><span>' + escapeHTML(f.name) + '</span></a>';
-      }
-      return '<a class="file-doc" href="' + f.url + '" target="_blank" rel="noopener noreferrer" download="' + escapeHTML(f.name) + '">📄 ' + escapeHTML(f.name) + '</a>';
-    }).join('') + '</div>';
-  }
-
-  function buildDetailHTML(job) {
-    var parts = [];
-    if (job.location) parts.push('<div class="detail-row"><span class="detail-label">Location</span><span>' + escapeHTML(job.location) + '</span></div>');
-    if (job.link) parts.push('<div class="detail-row"><span class="detail-label">Link</span><a href="' + escapeHTML(job.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHTML(job.link) + '</a></div>');
-    if (job.notes) parts.push('<div class="detail-row"><span class="detail-label">Notes</span><span class="detail-notes">' + escapeHTML(job.notes) + '</span></div>');
-    if (job.appliedDate) parts.push('<div class="detail-row"><span class="detail-label">Applied</span><span>' + formatDate(job.appliedDate) + '</span></div>');
-    if (!job.location && !job.link && !job.notes && !job.appliedDate) {
-      parts.push('<p class="muted">No extra details were added for this one.</p>');
+function openInterviewModal(job, checkbox) {
+  openModal({
+    title: 'Mark as interview',
+    bodyHTML: interviewModalHTML(),
+    onCancel: function () { checkbox.checked = false; },
+    onMount: function (m) {
+      m.querySelector('#interviewForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var parsed = parseLinks(m.querySelector('#interviewLinks').value);
+        if (!checkLinks(parsed)) return;
+        var submitBtn = m.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving…';
+        job.interview = true;
+        job.interviewDate = m.querySelector('#interviewDateInput').value || '';
+        job.interviewTime = m.querySelector('#interviewTimeInput').value || '';
+        job.interviewLinks = (job.interviewLinks || []).concat(parsed.links);
+        saveJob(job).then(function () { closeModal(); });
+      });
     }
+  });
+}
 
-    if (job.rejected) {
-      parts.push('<div class="detail-block rejected-block"><h4>Rejected</h4>' +
-        (job.rejectedReasons ? '<p>' + escapeHTML(job.rejectedReasons) + '</p>' : '<p class="muted">No reasons noted.</p>') +
-        '</div>');
+function openAddDocumentModal() {
+  openModal({
+    title: 'Add a document',
+    bodyHTML: addDocumentModalHTML(),
+    onMount: function (m) {
+      m.querySelector('#docForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var name = m.querySelector('#docName').value.trim();
+        var url = safeUrl(m.querySelector('#docUrl').value);
+        var note = m.querySelector('#docNote').value.trim();
+        if (!name) return;
+        if (!url) { alert('That link needs to start with https://'); return; }
+        var submitBtn = m.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving…';
+        addDocument(name, note, url).then(function () {
+          closeModal();
+        }).catch(function (err) {
+          console.error(err);
+          alert('Could not save that document. Check your connection and try again.');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Add to folder';
+        });
+      });
     }
+  });
+}
 
-    var needsFiles = job.accepted || job.interview;
-    var work = needsFiles
-      ? Promise.all([
-          job.accepted ? getJobFiles(job, 'accepted') : Promise.resolve([]),
-          job.interview ? getJobFiles(job, 'interview') : Promise.resolve([])
-        ])
-      : Promise.resolve([[], []]);
+/* ---------- flag toggles ---------- */
 
-    return work.then(function (results) {
-      var acceptedFiles = results[0], interviewFiles = results[1];
-      if (job.accepted) {
-        parts.push('<div class="detail-block accepted-block"><h4>Accepted</h4>' + renderFiles(acceptedFiles) + '</div>');
-      }
-      if (job.interview) {
-        var when = [job.interviewDate ? formatDate(job.interviewDate) : null, job.interviewTime || null].filter(Boolean).join(' at ');
-        parts.push('<div class="detail-block interview-block"><h4>Interview</h4>' +
-          (when ? '<p>' + escapeHTML(when) + '</p>' : '<p class="muted">No date set.</p>') +
-          renderFiles(interviewFiles) + '</div>');
-      }
-      parts.push('<div class="detail-actions"><button type="button" class="btn-text remove-job">Remove from tracker</button></div>');
-      return parts.join('');
-    });
+function handleAppliedToggle(job, checkbox) { if (checkbox.checked) openAppliedModal(job, checkbox); }
+
+function handleFlagToggle(job, flag, checkbox) {
+  if (checkbox.checked) {
+    if (flag === 'rejected') openRejectModal(job, checkbox);
+    else if (flag === 'accepted') openAcceptModal(job, checkbox);
+    else if (flag === 'interview') openInterviewModal(job, checkbox);
+    return;
+  }
+  var label = flag.charAt(0).toUpperCase() + flag.slice(1);
+  var ok = confirm('Remove the ' + label + ' status and its details for "' + job.title + '"?');
+  if (!ok) { checkbox.checked = true; return; }
+  job[flag] = false;
+  if (flag === 'rejected') job.rejectedReasons = '';
+  if (flag === 'accepted') job.acceptedLinks = [];
+  if (flag === 'interview') { job.interviewDate = ''; job.interviewTime = ''; job.interviewLinks = []; }
+  saveJob(job);
+}
+
+/* ---------- rendering: jobs ---------- */
+
+function getFiltered(tab) {
+  if (tab === 'opportunities') return jobs.filter(function (j) { return !j.applied; }).sort(byCreatedDesc);
+  if (tab === 'applied') return jobs.filter(function (j) { return j.applied; }).sort(byAppliedDesc);
+  if (tab === 'interview') return jobs.filter(function (j) { return j.interview; }).sort(byAppliedDesc);
+  if (tab === 'accepted') return jobs.filter(function (j) { return j.accepted; }).sort(byAppliedDesc);
+  if (tab === 'rejected') return jobs.filter(function (j) { return j.rejected; }).sort(byAppliedDesc);
+  return [];
+}
+
+function emptyMessage(tab) {
+  if (tab === 'opportunities') return 'Nothing here yet. Add a role you\'re eyeing to start tracking it.';
+  if (tab === 'applied') return 'No applications yet. Tick "Applied" on an opportunity to move it here.';
+  if (tab === 'interview') return 'No interviews on the books. They\'ll land here once you flag one.';
+  if (tab === 'accepted') return 'Nothing accepted yet. Offers you accept will collect here.';
+  if (tab === 'rejected') return 'No rejections yet. Hopefully it stays that way.';
+  return '';
+}
+
+function renderLinks(links) {
+  var items = (links || []).map(function (l) {
+    var u = safeUrl(l.url);
+    if (!u) return '';
+    return '<a class="file-doc" href="' + escapeHTML(u) + '" target="_blank" rel="noopener noreferrer">🔗 ' + escapeHTML(l.name || linkLabel(u)) + '</a>';
+  }).filter(Boolean);
+  if (!items.length) return '<p class="muted">No links added.</p>';
+  return '<div class="file-grid">' + items.join('') + '</div>';
+}
+
+function buildDetailHTML(job) {
+  var parts = [];
+  if (job.location) parts.push('<div class="detail-row"><span class="detail-label">Location</span><span>' + escapeHTML(job.location) + '</span></div>');
+  if (job.link) {
+    var jobUrl = safeUrl(job.link);
+    parts.push('<div class="detail-row"><span class="detail-label">Link</span>' +
+      (jobUrl ? '<a href="' + escapeHTML(jobUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHTML(job.link) + '</a>' : '<span>' + escapeHTML(job.link) + '</span>') +
+      '</div>');
+  }
+  if (job.notes) parts.push('<div class="detail-row"><span class="detail-label">Notes</span><span class="detail-notes">' + escapeHTML(job.notes) + '</span></div>');
+  if (job.appliedDate) parts.push('<div class="detail-row"><span class="detail-label">Applied</span><span>' + formatDate(job.appliedDate) + '</span></div>');
+  if (!job.location && !job.link && !job.notes && !job.appliedDate) {
+    parts.push('<p class="muted">No extra details were added for this one.</p>');
   }
 
-  function wireDetailEvents(detail, job) {
+  if (job.rejected) {
+    parts.push('<div class="detail-block rejected-block"><h4>Rejected</h4>' +
+      (job.rejectedReasons ? '<p>' + escapeHTML(job.rejectedReasons) + '</p>' : '<p class="muted">No reasons noted.</p>') +
+      '</div>');
+  }
+  if (job.accepted) {
+    parts.push('<div class="detail-block accepted-block"><h4>Accepted</h4>' + renderLinks(job.acceptedLinks) + '</div>');
+  }
+  if (job.interview) {
+    var when = [job.interviewDate ? formatDate(job.interviewDate) : null, job.interviewTime || null].filter(Boolean).join(' at ');
+    parts.push('<div class="detail-block interview-block"><h4>Interview</h4>' +
+      (when ? '<p>' + escapeHTML(when) + '</p>' : '<p class="muted">No date set.</p>') +
+      renderLinks(job.interviewLinks) + '</div>');
+  }
+  parts.push('<div class="detail-actions"><button type="button" class="btn-text remove-job">Remove from tracker</button></div>');
+  return parts.join('');
+}
+
+function renderCard(job, tab) {
+  var article = document.createElement('article');
+  article.className = 'card';
+  article.dataset.id = job.id;
+
+  var pills = [];
+  if (tab === 'applied') {
+    if (job.interview) pills.push('<span class="pill pill-interview">Interview</span>');
+    if (job.accepted) pills.push('<span class="pill pill-accepted">Accepted</span>');
+    if (job.rejected) pills.push('<span class="pill pill-rejected">Rejected</span>');
+  }
+
+  var metaBits = [];
+  if (job.location) metaBits.push(escapeHTML(job.location));
+  metaBits.push('added ' + formatDate(job.createdAt));
+  if (tab !== 'opportunities' && job.appliedDate) metaBits.push('applied ' + formatDate(job.appliedDate));
+
+  var controlsHTML = '';
+  if (tab === 'opportunities') {
+    controlsHTML = '<label class="checkbox"><input type="checkbox" class="chk-applied"><span>Applied</span></label>';
+  } else if (tab === 'applied') {
+    controlsHTML =
+      '<div class="status-checks">' +
+      '<label class="checkbox"><input type="checkbox" class="chk-interview"' + (job.interview ? ' checked' : '') + '><span>Interview</span></label>' +
+      '<label class="checkbox"><input type="checkbox" class="chk-accepted"' + (job.accepted ? ' checked' : '') + '><span>Accepted</span></label>' +
+      '<label class="checkbox"><input type="checkbox" class="chk-rejected"' + (job.rejected ? ' checked' : '') + '><span>Rejected</span></label>' +
+      '</div>';
+  }
+
+  article.innerHTML =
+    '<div class="card-row">' +
+      '<button class="expand-toggle" type="button" aria-expanded="false">' +
+        '<span class="chevron" aria-hidden="true">›</span>' +
+        '<span class="card-heading">' +
+          '<span class="card-title">' + escapeHTML(job.title) + '</span>' +
+          '<span class="card-meta">' + metaBits.join(' · ') + '</span>' +
+        '</span>' +
+      '</button>' +
+      (pills.length ? '<div class="pills">' + pills.join('') + '</div>' : '') +
+    '</div>' +
+    (controlsHTML ? '<div class="card-controls">' + controlsHTML + '</div>' : '') +
+    '<div class="card-detail-wrapper"><div class="card-detail-inner"><div class="card-detail"></div></div></div>';
+
+  var key = tab + ':' + job.id;
+  var toggle = article.querySelector('.expand-toggle');
+  var wrapper = article.querySelector('.card-detail-wrapper');
+  var detail = article.querySelector('.card-detail');
+
+  function fillDetail() {
+    detail.innerHTML = buildDetailHTML(job);
     var removeBtn = detail.querySelector('.remove-job');
     if (removeBtn) {
       removeBtn.addEventListener('click', function () {
-        if (confirm('Remove "' + job.title + '" from your tracker? This can\'t be undone.')) {
-          deleteJob(job.id).then(renderAll);
-        }
+        if (confirm('Remove "' + job.title + '" from your tracker? This can\'t be undone.')) deleteJob(job.id);
       });
     }
   }
 
-  function renderCard(job, tab) {
-    var article = document.createElement('article');
-    article.className = 'card';
-    article.dataset.id = job.id;
-
-    var pills = [];
-    if (tab === 'applied') {
-      if (job.interview) pills.push('<span class="pill pill-interview">Interview</span>');
-      if (job.accepted) pills.push('<span class="pill pill-accepted">Accepted</span>');
-      if (job.rejected) pills.push('<span class="pill pill-rejected">Rejected</span>');
-    }
-
-    var metaBits = [];
-    if (job.location) metaBits.push(escapeHTML(job.location));
-    metaBits.push('added ' + formatDate(job.createdAt));
-    if (tab !== 'opportunities' && job.appliedDate) metaBits.push('applied ' + formatDate(job.appliedDate));
-
-    var controlsHTML = '';
-    if (tab === 'opportunities') {
-      controlsHTML = '<label class="checkbox"><input type="checkbox" class="chk-applied"><span>Applied</span></label>';
-    } else if (tab === 'applied') {
-      controlsHTML =
-        '<div class="status-checks">' +
-        '<label class="checkbox"><input type="checkbox" class="chk-interview"' + (job.interview ? ' checked' : '') + '><span>Interview</span></label>' +
-        '<label class="checkbox"><input type="checkbox" class="chk-accepted"' + (job.accepted ? ' checked' : '') + '><span>Accepted</span></label>' +
-        '<label class="checkbox"><input type="checkbox" class="chk-rejected"' + (job.rejected ? ' checked' : '') + '><span>Rejected</span></label>' +
-        '</div>';
-    }
-
-    article.innerHTML =
-      '<div class="card-row">' +
-        '<button class="expand-toggle" type="button" aria-expanded="false">' +
-          '<span class="chevron" aria-hidden="true">›</span>' +
-          '<span class="card-heading">' +
-            '<span class="card-title">' + escapeHTML(job.title) + '</span>' +
-            '<span class="card-meta">' + metaBits.join(' · ') + '</span>' +
-          '</span>' +
-        '</button>' +
-        (pills.length ? '<div class="pills">' + pills.join('') + '</div>' : '') +
-      '</div>' +
-      (controlsHTML ? '<div class="card-controls">' + controlsHTML + '</div>' : '') +
-      '<div class="card-detail-wrapper"><div class="card-detail-inner"><div class="card-detail"></div></div></div>';
-
-    var toggle = article.querySelector('.expand-toggle');
-    var wrapper = article.querySelector('.card-detail-wrapper');
-    var detail = article.querySelector('.card-detail');
-    var loaded = false;
-
-    toggle.addEventListener('click', function () {
-      var expanded = toggle.getAttribute('aria-expanded') === 'true';
-      toggle.setAttribute('aria-expanded', String(!expanded));
-      wrapper.classList.toggle('expanded', !expanded);
-      if (!expanded && !loaded) {
-        loaded = true;
-        detail.innerHTML = '<p class="muted">Loading…</p>';
-        buildDetailHTML(job).then(function (html) {
-          detail.innerHTML = html;
-          wireDetailEvents(detail, job);
-        });
-      }
-    });
-
-    if (tab === 'opportunities') {
-      article.querySelector('.chk-applied').addEventListener('change', function (e) { handleAppliedToggle(job, e.target); });
-    } else if (tab === 'applied') {
-      article.querySelector('.chk-interview').addEventListener('change', function (e) { handleFlagToggle(job, 'interview', e.target); });
-      article.querySelector('.chk-accepted').addEventListener('change', function (e) { handleFlagToggle(job, 'accepted', e.target); });
-      article.querySelector('.chk-rejected').addEventListener('change', function (e) { handleFlagToggle(job, 'rejected', e.target); });
-    }
-
-    return article;
+  /* Cards that were open before a live update stay open. */
+  if (expandedCards[key]) {
+    toggle.setAttribute('aria-expanded', 'true');
+    wrapper.classList.add('expanded');
+    fillDetail();
   }
 
-  function renderPanel(tab) {
-    var panel = document.getElementById('panel-' + tab);
-    var list = getFiltered(tab);
-    document.getElementById('count-' + tab).textContent = list.length;
-    panel.innerHTML = '';
-    if (!list.length) {
-      var p = document.createElement('p');
-      p.className = 'empty';
-      p.textContent = emptyMessage(tab);
-      panel.appendChild(p);
-      return;
-    }
-    list.forEach(function (job) { panel.appendChild(renderCard(job, tab)); });
-  }
-
-  function renderAll() {
-    ['opportunities', 'applied', 'interview', 'accepted', 'rejected'].forEach(renderPanel);
-  }
-
-  /* ---------- rendering: documents ---------- */
-
-  function renderDocumentCard(docItem) {
-    var article = document.createElement('article');
-    article.className = 'card doc-card';
-    var isImage = docItem.contentType && docItem.contentType.indexOf('image/') === 0;
-    article.innerHTML =
-      '<div class="card-row doc-row">' +
-        '<a class="doc-link" href="' + docItem.url + '" target="_blank" rel="noopener noreferrer" download="' + escapeHTML(docItem.name) + '">' +
-          '<span class="doc-icon" aria-hidden="true">' + (isImage ? '🖼️' : '📄') + '</span>' +
-          '<span class="card-heading">' +
-            '<span class="card-title">' + escapeHTML(docItem.name) + '</span>' +
-            '<span class="card-meta">' + (docItem.note ? escapeHTML(docItem.note) + ' · ' : '') + 'added ' + formatDate(docItem.uploadedAt) + '</span>' +
-          '</span>' +
-        '</a>' +
-        '<button type="button" class="btn-text remove-doc">Remove</button>' +
-      '</div>';
-    article.querySelector('.remove-doc').addEventListener('click', function () {
-      if (confirm('Remove "' + docItem.name + '" from the shared folder?')) {
-        deleteDocument(docItem.id).then(function () {
-          if (mode === 'local') return loadDocumentsLocal().then(renderDocumentsPanel);
-          renderDocumentsPanel();
-        });
-      }
-    });
-    return article;
-  }
-
-  function renderDocumentsPanel() {
-    var panel = document.getElementById('panel-documents');
-    if (!panel) return;
-    document.getElementById('count-documents').textContent = documents.length;
-    panel.innerHTML = '';
-
-    var toolbar = document.createElement('div');
-    toolbar.className = 'panel-toolbar';
-    var addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className = 'btn-primary';
-    addBtn.textContent = '+ Add document';
-    addBtn.addEventListener('click', openAddDocumentModal);
-    toolbar.appendChild(addBtn);
-    panel.appendChild(toolbar);
-
-    if (!documents.length) {
-      var p = document.createElement('p');
-      p.className = 'empty';
-      p.textContent = 'Nothing here yet. Keep your CV, cover letter and certificates together so everyone helping with your search can find them.';
-      panel.appendChild(p);
-      return;
-    }
-    documents.slice().sort(function (a, b) { return new Date(b.uploadedAt) - new Date(a.uploadedAt); })
-      .forEach(function (docItem) { panel.appendChild(renderDocumentCard(docItem)); });
-  }
-
-  /* ---------- mode banner ---------- */
-
-  function renderModeBanner() {
-    var banner = document.getElementById('modeBanner');
-    if (!banner) return;
-    if (mode === 'shared') {
-      banner.textContent = '🔗 Synced — everyone you\'ve shared this with sees the same jobs and documents, live.';
-    } else {
-      banner.textContent = '💻 Saved to this browser only right now — open this artifact\'s Share option and give your collaborator edit access to turn on live sync.';
-    }
-  }
-
-  /* ---------- tabs ---------- */
-
-  document.querySelectorAll('.tab').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var tab = btn.dataset.tab;
-      document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b === btn); });
-      document.querySelectorAll('.tab-panel').forEach(function (p) { p.hidden = p.id !== ('panel-' + tab); });
-    });
+  toggle.addEventListener('click', function () {
+    var open = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!open));
+    wrapper.classList.toggle('expanded', !open);
+    if (open) { delete expandedCards[key]; }
+    else { expandedCards[key] = true; fillDetail(); }
   });
 
-  document.getElementById('addJobBtn').addEventListener('click', openAddJobModal);
+  if (tab === 'opportunities') {
+    article.querySelector('.chk-applied').addEventListener('change', function (e) { handleAppliedToggle(job, e.target); });
+  } else if (tab === 'applied') {
+    article.querySelector('.chk-interview').addEventListener('change', function (e) { handleFlagToggle(job, 'interview', e.target); });
+    article.querySelector('.chk-accepted').addEventListener('change', function (e) { handleFlagToggle(job, 'accepted', e.target); });
+    article.querySelector('.chk-rejected').addEventListener('change', function (e) { handleFlagToggle(job, 'rejected', e.target); });
+  }
 
-  /* ---------- init ---------- */
+  return article;
+}
 
-  initStorage().then(function () {
-    renderModeBanner();
-    if (mode === 'shared') {
-      watchJobsShared();
-      watchDocumentsShared();
-    } else {
-      loadJobsLocal().then(renderAll);
-      loadDocumentsLocal().then(renderDocumentsPanel);
+function renderPanel(tab) {
+  var panel = document.getElementById('panel-' + tab);
+  var list = getFiltered(tab);
+  document.getElementById('count-' + tab).textContent = list.length;
+  panel.innerHTML = '';
+  if (!list.length) {
+    var p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = emptyMessage(tab);
+    panel.appendChild(p);
+    return;
+  }
+  list.forEach(function (job) { panel.appendChild(renderCard(job, tab)); });
+}
+
+function renderAll() {
+  ['opportunities', 'applied', 'interview', 'accepted', 'rejected'].forEach(renderPanel);
+}
+
+/* ---------- rendering: documents ---------- */
+
+function renderDocumentCard(docItem) {
+  var article = document.createElement('article');
+  article.className = 'card doc-card';
+  var u = safeUrl(docItem.url);
+  var inner =
+    '<span class="doc-icon" aria-hidden="true">📄</span>' +
+    '<span class="card-heading">' +
+      '<span class="card-title">' + escapeHTML(docItem.name) + '</span>' +
+      '<span class="card-meta">' + (docItem.note ? escapeHTML(docItem.note) + ' · ' : '') + 'added ' + formatDate(docItem.uploadedAt) + '</span>' +
+    '</span>';
+  article.innerHTML =
+    '<div class="card-row doc-row">' +
+      (u
+        ? '<a class="doc-link" href="' + escapeHTML(u) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
+        : '<div class="doc-link">' + inner + '</div>') +
+      '<button type="button" class="btn-text remove-doc">Remove</button>' +
+    '</div>';
+  article.querySelector('.remove-doc').addEventListener('click', function () {
+    if (confirm('Remove "' + docItem.name + '" from the shared folder? The file itself stays wherever it\'s stored.')) {
+      deleteDocument(docItem.id);
     }
   });
-})();
+  return article;
+}
+
+function renderDocumentsPanel() {
+  var panel = document.getElementById('panel-documents');
+  document.getElementById('count-documents').textContent = documents.length;
+  panel.innerHTML = '';
+
+  var toolbar = document.createElement('div');
+  toolbar.className = 'panel-toolbar';
+  var addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'btn-primary';
+  addBtn.textContent = '+ Add document';
+  addBtn.addEventListener('click', openAddDocumentModal);
+  toolbar.appendChild(addBtn);
+  panel.appendChild(toolbar);
+
+  if (!documents.length) {
+    var p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Nothing here yet. Add links to your CV, cover letter and certificates so everyone helping with your search can find them.';
+    panel.appendChild(p);
+    return;
+  }
+  documents.slice().sort(function (a, b) { return new Date(b.uploadedAt) - new Date(a.uploadedAt); })
+    .forEach(function (docItem) { panel.appendChild(renderDocumentCard(docItem)); });
+}
+
+/* ---------- tabs ---------- */
+
+document.querySelectorAll('.tab').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var tab = btn.dataset.tab;
+    document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b === btn); });
+    document.querySelectorAll('.tab-panel').forEach(function (p) { p.hidden = p.id !== ('panel-' + tab); });
+  });
+});
+
+addJobBtn.addEventListener('click', openAddJobModal);
+
+/* First paint of the Documents tab (empty until sign-in loads data). */
+renderDocumentsPanel();
 </script>
 </body>
 </html>
